@@ -503,6 +503,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       acceptedAnswers: riddle.acceptedAnswers,
       caseSensitive: riddle.caseSensitive,
       normalizeWhitespace: riddle.normalizeWhitespace,
+      options: riddle.options,
     });
 
     const now = new Date().toISOString();

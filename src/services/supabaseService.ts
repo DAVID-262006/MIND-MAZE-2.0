@@ -147,25 +147,24 @@ export class SupabaseService {
   }
 
   /**
-   * Submit puzzle answer RPC: submit_puzzle_answer(p_team_id, p_session_token, p_round_number, p_submitted_answer)
+   * Submit puzzle answer RPC: submit_puzzle_answer(p_team_id, p_session_token, p_answer)
    */
   public static async submitPuzzleAnswer(
     teamId: string,
     sessionToken: string,
-    roundNumber: number,
     submittedAnswer: string
   ) {
     return this.callRpc<{
-      correct: boolean;
-      attempts_count: number;
+      success: boolean;
+      correct?: boolean;
+      attempts_count?: number;
       message: string;
-      next_step: string;
-      checkpoint_name?: string;
+      riddle?: string;
+      puzzle_solved?: boolean;
     }>('submit_puzzle_answer', {
       p_team_id: teamId,
       p_session_token: sessionToken,
-      p_round_number: roundNumber,
-      p_submitted_answer: submittedAnswer.trim(),
+      p_answer: submittedAnswer.trim(),
     });
   }
 

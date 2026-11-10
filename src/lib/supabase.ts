@@ -4,9 +4,10 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
  * Supabase Environment Configuration
  * Values are injected at build/runtime via Vite's import.meta.env
  */
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabasePublishableKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-  import.meta.env.VITE_SUPABASE_ANON_KEY) as string | undefined;
+const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : undefined) as string | undefined;
+const supabasePublishableKey = (typeof import.meta !== 'undefined' && import.meta.env
+  ? (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY)
+  : undefined) as string | undefined;
 
 /**
  * Validate that environment configuration is present and non-empty.

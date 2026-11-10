@@ -104,69 +104,74 @@ ON CONFLICT (id) DO UPDATE SET
 INSERT INTO puzzles (
     id, round_number, title, puzzle_type, description_md,
     accepted_answers, case_sensitive, normalize_whitespace,
-    riddle_text, hints, max_attempts, sample_cases, starter_code
+    riddle_text, hints, max_attempts, options, correct_option_index, image_url, image_alt, sample_cases, starter_code
 ) VALUES
 (
-    'puz-1', 1, 'Array Anomaly Scanner', 'coding',
-    'Given an array of integers `nums`, find the single element that appears exactly once where every other element appears twice.
-
-### Sample Input
-`nums = [4, 1, 2, 1, 2]`
-
-### Question
-What is the exact value of the unique anomaly element in the sample array?',
-    ARRAY['4', 'xor', 'ans^=n', 'bit_xor'],
-    false, true,
-    'Where silent knowledge sleeps in thousands of bound pages, seek the digital kiosk on the ground floor atrium.',
-    ARRAY['Consider bitwise XOR (^). Any number XORed with itself is zero (A ^ A = 0), and 0 ^ A = A.'],
-    5,
-    '[{"input": "4 1 2 1 2", "expectedOutput": "4", "explanation": "4 is unique, while 1 and 2 appear twice"}]'::jsonb,
-    '{"python": "# Python 3\\ndef solve(nums):\\n    ans = 0\\n    for n in nums: ans ^= n\\n    return ans"}'::jsonb
-),
-(
-    'puz-2', 2, 'The Enigma of Caesar + 7', 'crypto',
-    'An intercepted operational dispatch on the campus radio is encrypted with Caesar shift key 7:
-
-`OLSSV DVYSK`
-
-Decrypt the ciphertext to recover the plaintext authentication passphrase.',
-    ARRAY['hello world', 'helloworld'],
-    false, true,
-    'Where silicon brains learn to walk and robotic arms hum, seek Hallway A on the first floor beside the Robotics Lab.',
-    ARRAY['Shift each letter backward by 7 positions in the alphabet: O - 7 = H, L - 7 = E, S - 7 = L...'],
-    5,
-    '[{"input": "OLSSV DVYSK", "expectedOutput": "HELLO WORLD", "explanation": "Caesar shift -7"}]'::jsonb,
-    '{}'::jsonb
-),
-(
-    'puz-3', 3, 'Recursive Fibonacci Modulo', 'logic',
-    'A campus router transmits packets according to the standard Fibonacci sequence:
-$$F(0) = 0,\quad F(1) = 1,\quad F(n) = F(n-1) + F(n-2)$$
-
-What is the exact value of $F(10) \pmod{10}$?',
-    ARRAY['5', '5.0', '55 mod 10 = 5', 'f(10) = 55'],
-    false, true,
-    'Where clean energy catches the sky, look beside the solar cell showcase display near the west entrance.',
-    ARRAY['Compute sequence: 0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55. What is 55 modulo 10?'],
-    5,
-    '[]'::jsonb,
-    '{}'::jsonb
-),
-(
-    'puz-4', 4, 'Historical Computing Pioneer', 'text',
+    'puz-1', 1, 'Historical Computing Pioneer', 'TEXT_RIDDLE',
     'In 1936, which British mathematician and logician introduced the universal computing machine model and subsequently decrypted Naval Enigma signals at Bletchley Park?
 
 Enter the scientist''s surname.',
     ARRAY['turing', 'alan turing', 'alan mathison turing'],
     false, true,
-    'Where voices gather on stone tiers, find the exterior pillar facing the outdoor amphitheater steps.',
+    'Where silent knowledge sleeps in thousands of bound pages, seek the digital kiosk on the ground floor atrium.',
     ARRAY['Namesake of the prestigious ACM award often referred to as the Nobel Prize of Computing.'],
     5,
+    '{}'::text[],
+    NULL,
+    NULL,
+    NULL,
     '[]'::jsonb,
     '{}'::jsonb
 ),
 (
-    'puz-5', 5, 'Hexadecimal ASCII Memory Stream', 'crypto',
+    'puz-2', 2, 'Algorithmic Time Complexity', 'MCQ',
+    'What is the asymptotic worst-case time complexity of binary search executed on a sorted array of $N$ elements?',
+    ARRAY['O(log N) - Logarithmic Time', 'B', '1', 'o(log n)', 'ologn'],
+    false, true,
+    'Where silicon brains learn to walk and robotic arms hum, seek Hallway A on the first floor beside the Robotics Lab.',
+    ARRAY['At each comparison step, the search range is partitioned strictly in half.'],
+    5,
+    ARRAY['O(1) - Constant Time', 'O(log N) - Logarithmic Time', 'O(N) - Linear Time', 'O(N log N) - Linearithmic Time'],
+    1,
+    NULL,
+    NULL,
+    '[]'::jsonb,
+    '{}'::jsonb
+),
+(
+    'puz-3', 3, 'Historic Campus Monument Architecture', 'IMAGE_QUIZ',
+    'Examine the architectural silhouette schematic below. Built in 1928, this monumental four-faced timekeeping structure marks Checkpoint #10 overlooking the Administration Lawn.
+
+What is the two-word architectural term for this landmark?',
+    ARRAY['clock tower', 'the clock tower', 'clocktower'],
+    false, true,
+    'Where clean energy catches the sky, look beside the solar cell showcase display near the west entrance.',
+    ARRAY['It chimes at every hour overlooking the Administration Lawn at Location #10.'],
+    5,
+    '{}'::text[],
+    NULL,
+    '/assets/puzzles/clock_tower.svg',
+    'Blueprint elevation schematic of historical four-faced campus clock tower',
+    '[]'::jsonb,
+    '{}'::jsonb
+),
+(
+    'puz-4', 4, 'Digital Logic Gate Analysis', 'IMAGE_MCQ',
+    'Examine the digital logic schematic below. When input signals $A = 1$ and $B = 0$ are applied to this standard Exclusive-OR (XOR) gate, what is the resulting output state $Y$?',
+    ARRAY['Y = 1 (Logic High)', 'B', '1', '1', 'y = 1', 'high'],
+    false, true,
+    'Where voices gather on stone tiers, find the exterior pillar facing the outdoor amphitheater steps.',
+    ARRAY['XOR outputs 1 if and only if the two binary inputs are strictly different.'],
+    5,
+    ARRAY['Y = 0 (Logic Low)', 'Y = 1 (Logic High)', 'High Impedance (Floating)', 'Oscillating Undefined'],
+    1,
+    '/assets/puzzles/xor_gate.svg',
+    'Logic diagram of a 2-input XOR gate with inputs A=1 and B=0',
+    '[]'::jsonb,
+    '{}'::jsonb
+),
+(
+    'puz-5', 5, 'Hexadecimal ASCII Memory Stream', 'TEXT_RIDDLE',
     'A sensor beacon transmitted this hexadecimal byte array:
 `54 72 65 61 73 75 72 65`
 
@@ -176,71 +181,93 @@ Convert the hexadecimal ASCII bytes into human-readable text.',
     'Where filament becomes structure layer by layer, search the glass walls of the 3D printing workshop on the 3rd floor mezzanine.',
     ARRAY['0x54 = 84 = "T", 0x72 = 114 = "r", 0x65 = 101 = "e"...'],
     5,
+    '{}'::text[],
+    NULL,
+    NULL,
+    NULL,
     '[{"input": "54 72 65 61 73 75 72 65", "expectedOutput": "Treasure", "explanation": "Hex ASCII decoding"}]'::jsonb,
     '{}'::jsonb
 ),
 (
-    'puz-6', 6, 'Knights, Knaves, and the Fork in the Trail', 'logic',
+    'puz-6', 6, 'Knights, Knaves, and the Fork in the Trail', 'MCQ',
     'Two guards stand at a fork in the trail. One always tells the truth; the other always lies.
 
-To find the correct checkpoint, you ask: *"Which road would the other guard say is the right one?"*
+You ask: *"Which road would the other guard say is the right one?"*
 
-If the guard answers "Left", which road must you take? (Enter "Left" or "Right")',
-    ARRAY['right', 'take right', 'the right road', 'right path'],
+If the guard answers "Left", which path must you take?',
+    ARRAY['Take the Right Road', 'B', '1', 'right', 'the right road', 'right path'],
     false, true,
     'Where shadows cast by the sun tell the exact hour of midday, stand beneath the courtyard sundial monument.',
-    ARRAY['Both the truth-teller and the liar will point you to the incorrect road! Therefore, choose the opposite.'],
+    ARRAY['Both the truth-teller and the liar will point you to the false road. Therefore, pick the opposite.'],
     5,
+    ARRAY['Take the Left Road', 'Take the Right Road', 'Stay at the fork and wait', 'Turn around back to Quad'],
+    1,
+    NULL,
+    NULL,
     '[]'::jsonb,
     '{}'::jsonb
 ),
 (
-    'puz-7', 7, 'Historic Campus Monument Architecture', 'text',
-    'The campus centerpiece was constructed in 1928 with a monumental four-faced timekeeping structure overlooking the Administration Lawn.
-
-What is the two-word architectural term for this central historical tower?',
-    ARRAY['clock tower', 'the clock tower', 'clocktower'],
+    'puz-7', 7, 'Solar Showcase Semiconductor Effect', 'IMAGE_QUIZ',
+    'Examine the technical schematic of Checkpoint #3. What fundamental physical effect enables these semiconductor P-N junction panels to convert incident solar photons directly into electrical voltage?',
+    ARRAY['photovoltaic', 'photovoltaic effect', 'photoelectric', 'photoelectric effect'],
     false, true,
     'Where championship honors gleam behind glass, check the right wing foyer adjacent to the historic trophy cabinet.',
-    ARRAY['It chimes at every hour overlooking the Administration Lawn at Location #10.'],
+    ARRAY['Often abbreviated as the "PV" effect.'],
     5,
+    '{}'::text[],
+    NULL,
+    '/assets/puzzles/solar_panel.svg',
+    'Semiconductor P-N junction solar panel receiving incident photons',
     '[]'::jsonb,
     '{}'::jsonb
 ),
 (
-    'puz-8', 8, 'Polyalphabetic Vigenère Decryption', 'crypto',
+    'puz-8', 8, 'Polyalphabetic Vigenère Decryption', 'MCQ',
     'Decrypt the polyalphabetic ciphertext `KSVRR` encoded using the standard 26-letter Vigenère cipher with the secret keyword `ARENA`.',
-    ARRAY['kudos', 'KUDOS'],
+    ARRAY['KUDOS', 'B', '1', 'kudos'],
     false, true,
     'Where athletes race against the clock on the oval track, scan from the upper gallery pavilion deck.',
     ARRAY['Plaintext = (Ciphertext - Key) mod 26. K - A = K, S - R = U, V - E = D, R - N = O, R - A = S.'],
     5,
-    '[{"input": "Ciphertext: KSVRR, Key: ARENA", "expectedOutput": "KUDOS", "explanation": "Vigenere shift subtraction"}]'::jsonb,
-    '{}'::jsonb
-),
-(
-    'puz-9', 9, 'The Monty Hall Probability Enigma', 'logic',
-    'In the classic 3-door Monty Hall problem (1 prize, 2 goats), after you choose Door 1, the host opens Door 3 revealing a goat and offers you the chance to switch to Door 2.
-
-What is your probability of winning if you switch? Express your answer as a simplified fraction (e.g. `2/3`).',
-    ARRAY['2/3', '2 / 3', '0.667', '0.67', '66.7%'],
-    false, true,
-    'Where twin monolithic towers connect under high arches, walk through the central covered arcade corridor.',
-    ARRAY['Your initial door has a 1/3 chance of winning. Switching gives you the remaining 2/3 probability!'],
-    5,
+    ARRAY['ATLAS', 'KUDOS', 'RADAR', 'CYBER'],
+    1,
+    NULL,
+    NULL,
     '[]'::jsonb,
     '{}'::jsonb
 ),
 (
-    'puz-10', 10, 'Championship Target Checkpoint Pair', 'coding',
-    'Given an array of integers `nums = [2, 7, 11, 15]` and an integer `target = 9`, return the space-separated 0-indexed positions of the two numbers that add up to `target`.',
-    ARRAY['0 1', '1 0', '0, 1', '[0, 1]', '0,1'],
+    'puz-9', 9, 'The Monty Hall Probability Enigma', 'MCQ',
+    'In the classic 3-door Monty Hall problem (1 prize, 2 goats), after you choose Door 1, the host opens Door 3 revealing a goat and offers you the chance to switch to Door 2.
+
+What is your probability of winning if you switch?',
+    ARRAY['2/3 (66.7% chance)', 'C', '2', '2/3', '0.667', '66.7%'],
+    false, true,
+    'Where twin monolithic towers connect under high arches, walk through the central covered arcade corridor.',
+    ARRAY['Your initial choice had a 1/3 probability. The remaining 2/3 probability shifts entirely to Door 2.'],
+    5,
+    ARRAY['1/3 (33.3% chance)', '1/2 (50.0% chance)', '2/3 (66.7% chance)', '3/4 (75.0% chance)'],
+    2,
+    NULL,
+    NULL,
+    '[]'::jsonb,
+    '{}'::jsonb
+),
+(
+    'puz-10', 10, 'Championship Orienteering Finale Hub', 'IMAGE_MCQ',
+    'Review the campus topological graph below. Which campus checkpoint serves as the central hub (#10) at the base of the clock tower where all finalists converge?',
+    ARRAY['Station #10 - Administration Lawn (Clock Tower Base)', 'A', '0', '10', 'clock tower base'],
     false, true,
     'Where four monumental clock faces chimed every hour since 1928, reach the northern base of the historic stone tower.',
-    ARRAY['Use a hash map to look up complements in linear O(N) time: 9 - 2 = 7.'],
+    ARRAY['Look at the green highlighted circular node labeled "10" at the central convergence point.'],
     5,
-    '[{"input": "2 7 11 15\\n9", "expectedOutput": "0 1", "explanation": "nums[0] + nums[1] = 2 + 7 = 9"}]'::jsonb,
-    '{"python": "# Python 3\\ndef two_sum(nums, target):\\n    lookup = {}\\n    for i, n in enumerate(nums):\\n        diff = target - n\\n        if diff in lookup: return [lookup[diff], i]\\n        lookup[n] = i\\n    return []"}'::jsonb
+    ARRAY['Station #10 - Administration Lawn (Clock Tower Base)', 'Station #4 - Student Center (Quad Steps)', 'Station #1 - Main Library (Atrium)', 'Station #8 - Sports Complex (Pavilion Deck)'],
+    0,
+    '/assets/puzzles/campus_map.svg',
+    'Campus topological orienteering map showing numbered stations with node 10 highlighted',
+    '[]'::jsonb,
+    '{}'::jsonb
 )
 ON CONFLICT (id) DO UPDATE SET
     title = EXCLUDED.title,
@@ -248,6 +275,16 @@ ON CONFLICT (id) DO UPDATE SET
     description_md = EXCLUDED.description_md,
     accepted_answers = EXCLUDED.accepted_answers,
     case_sensitive = EXCLUDED.case_sensitive,
+    normalize_whitespace = EXCLUDED.normalize_whitespace,
+    riddle_text = EXCLUDED.riddle_text,
+    hints = EXCLUDED.hints,
+    max_attempts = EXCLUDED.max_attempts,
+    options = EXCLUDED.options,
+    correct_option_index = EXCLUDED.correct_option_index,
+    image_url = EXCLUDED.image_url,
+    image_alt = EXCLUDED.image_alt,
+    sample_cases = EXCLUDED.sample_cases,
+    starter_code = EXCLUDED.starter_code;
     normalize_whitespace = EXCLUDED.normalize_whitespace,
     riddle_text = EXCLUDED.riddle_text,
     hints = EXCLUDED.hints,

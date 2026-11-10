@@ -34,10 +34,17 @@ jobs:
 
       - name: Build Application with Vite
         env:
-          VITE_BASE_PATH: './'
+          VITE_BASE_PATH: '/MIND-MAZE-2.0/'
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://yersiudondrbdlerowth.supabase.co' }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_KMPaBMpFnETgBpWyMip0cA_onMXC9SI' }}
         run: npm run build
+
+      - name: Verify GitHub Pages SPA Artifacts
+        run: |
+          ls -la dist/
+          test -f dist/index.html || exit 1
+          test -f dist/404.html || exit 1
+          echo "Verified dist/index.html and dist/404.html exist for SPA deployment"
 
       - name: Upload GitHub Pages Artifact
         uses: actions/upload-pages-artifact@v3

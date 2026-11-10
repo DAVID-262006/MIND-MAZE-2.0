@@ -14,7 +14,15 @@ export type RoundStatus =
   | 'completed' 
   | 'timed_out';
 
-export type PuzzleType = 'coding' | 'text' | 'crypto' | 'logic';
+export type PuzzleType = 
+  | 'TEXT_RIDDLE' 
+  | 'MCQ' 
+  | 'IMAGE_QUIZ' 
+  | 'IMAGE_MCQ' 
+  | 'coding' 
+  | 'text' 
+  | 'crypto' 
+  | 'logic';
 
 export type SupportedLanguage = 'c' | 'cpp' | 'python' | 'java';
 
@@ -42,6 +50,12 @@ export interface Riddle {
   maxAttempts: number;
   hints: string[];
   published: boolean;
+  // Multi-format puzzle properties
+  options?: string[]; // 4 configurable options for MCQ and IMAGE_MCQ
+  correctOptionIndex?: number; // 0, 1, 2, 3 for MCQ and IMAGE_MCQ
+  imageUrl?: string; // Image URL/data URI for IMAGE_QUIZ and IMAGE_MCQ
+  imageAlt?: string; // Non-identifying visual description or hint
+  // Technical / Algorithmic challenge properties
   allowedLanguages?: SupportedLanguage[];
   sampleCases?: TestCase[];
   hiddenCases?: TestCase[];

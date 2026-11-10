@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS puzzles (
     id VARCHAR(50) PRIMARY KEY,
     round_number INT UNIQUE NOT NULL CHECK (round_number BETWEEN 1 AND 10),
     title VARCHAR(200) NOT NULL,
-    puzzle_type VARCHAR(30) NOT NULL DEFAULT 'text' CHECK (puzzle_type IN ('coding', 'text', 'crypto', 'logic')),
+    puzzle_type VARCHAR(30) NOT NULL DEFAULT 'TEXT_RIDDLE' CHECK (puzzle_type IN ('TEXT_RIDDLE', 'MCQ', 'IMAGE_QUIZ', 'IMAGE_MCQ', 'coding', 'text', 'crypto', 'logic')),
     description_md TEXT NOT NULL,
     accepted_answers TEXT[] NOT NULL,
     case_sensitive BOOLEAN NOT NULL DEFAULT false,
@@ -167,6 +167,10 @@ CREATE TABLE IF NOT EXISTS puzzles (
     riddle_text TEXT NOT NULL,
     hints TEXT[] NOT NULL DEFAULT '{}',
     max_attempts INT NOT NULL DEFAULT 5 CHECK (max_attempts > 0),
+    options TEXT[] DEFAULT '{}'::text[],
+    correct_option_index INT DEFAULT NULL CHECK (correct_option_index IS NULL OR (correct_option_index BETWEEN 0 AND 3)),
+    image_url TEXT DEFAULT NULL,
+    image_alt TEXT DEFAULT NULL,
     sample_cases JSONB NOT NULL DEFAULT '[]'::jsonb,
     hidden_cases JSONB NOT NULL DEFAULT '[]'::jsonb,
     starter_code JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -658,7 +662,8 @@ BEGIN
     IF v_progress.puzzle_id IS NOT NULL THEN
         SELECT 
             id, round_number, title, puzzle_type, description_md,
-            hints, max_attempts, sample_cases, starter_code
+            hints, max_attempts, sample_cases, starter_code,
+            options, image_url, image_alt
         INTO v_puzzle
         FROM puzzles
         WHERE id = v_progress.puzzle_id;
@@ -722,7 +727,10 @@ BEGIN
                 'hints', v_puzzle.hints,
                 'max_attempts', v_puzzle.max_attempts,
                 'sample_cases', v_puzzle.sample_cases,
-                'starter_code', v_puzzle.starter_code
+                'starter_code', v_puzzle.starter_code,
+                'options', COALESCE(v_puzzle.options, ARRAY[]::TEXT[]),
+                'image_url', v_puzzle.image_url,
+                'image_alt', v_puzzle.image_alt
             )
             ELSE NULL END
     );
@@ -866,7 +874,10 @@ BEGIN
             'hints', v_first_puzzle.hints,
             'max_attempts', v_first_puzzle.max_attempts,
             'sample_cases', v_first_puzzle.sample_cases,
-            'starter_code', v_first_puzzle.starter_code
+            'starter_code', v_first_puzzle.starter_code,
+            'options', COALESCE(v_first_puzzle.options, ARRAY[]::TEXT[]),
+            'image_url', v_first_puzzle.image_url,
+            'image_alt', v_first_puzzle.image_alt
         )
     );
 END;
@@ -990,22 +1001,37 @@ BEGIN
         v_submitted_norm := LOWER(v_submitted_norm);
     END IF;
 
-    -- Compare against accepted answers array
-    FOREACH v_accepted_ans IN ARRAY v_puzzle.accepted_answers
-    LOOP
-        v_target_norm := TRIM(v_accepted_ans);
-        IF v_puzzle.normalize_whitespace THEN
-            v_target_norm := REGEXP_REPLACE(v_target_norm, '\s+', ' ', 'g');
-        END IF;
-        IF NOT v_puzzle.case_sensitive THEN
-            v_target_norm := LOWER(v_target_norm);
-        END IF;
+    -- Compare against accepted answers array and MCQ option validation
+    IF v_puzzle.puzzle_type IN ('MCQ', 'IMAGE_MCQ') AND v_puzzle.correct_option_index IS NOT NULL AND array_length(v_puzzle.options, 1) >= 4 THEN
+        DECLARE
+            v_correct_opt_text TEXT := v_puzzle.options[v_puzzle.correct_option_index + 1];
+            v_correct_letter TEXT := CHR(65 + v_puzzle.correct_option_index);
+            v_correct_idx0 TEXT := v_puzzle.correct_option_index::TEXT;
+            v_correct_idx1 TEXT := (v_puzzle.correct_option_index + 1)::TEXT;
+        BEGIN
+            IF LOWER(v_submitted_norm) IN (LOWER(TRIM(v_correct_opt_text)), LOWER(v_correct_letter), v_correct_idx0, v_correct_idx1) THEN
+                v_is_correct := true;
+            END IF;
+        END;
+    END IF;
 
-        IF v_submitted_norm = v_target_norm THEN
-            v_is_correct := true;
-            EXIT;
-        END IF;
-    END LOOP;
+    IF NOT v_is_correct THEN
+        FOREACH v_accepted_ans IN ARRAY v_puzzle.accepted_answers
+        LOOP
+            v_target_norm := TRIM(v_accepted_ans);
+            IF v_puzzle.normalize_whitespace THEN
+                v_target_norm := REGEXP_REPLACE(v_target_norm, '\s+', ' ', 'g');
+            END IF;
+            IF NOT v_puzzle.case_sensitive THEN
+                v_target_norm := LOWER(v_target_norm);
+            END IF;
+
+            IF v_submitted_norm = v_target_norm THEN
+                v_is_correct := true;
+                EXIT;
+            END IF;
+        END LOOP;
+    END IF;
 
     v_attempt_num := v_progress.attempts_count + 1;
 

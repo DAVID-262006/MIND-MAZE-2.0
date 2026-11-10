@@ -3,6 +3,9 @@ import { CodingPuzzleView } from './CodingPuzzleView';
 import { TextPuzzleView } from './TextPuzzleView';
 import { CryptoPuzzleView } from './CryptoPuzzleView';
 import { LogicPuzzleView } from './LogicPuzzleView';
+import { McqPuzzleView } from './McqPuzzleView';
+import { ImageQuizView } from './ImageQuizView';
+import { ImageMcqView } from './ImageMcqView';
 import type { Riddle } from '../../types';
 
 export interface PuzzleRendererProps {
@@ -30,18 +33,37 @@ export function PuzzleRenderer({
   }
 
   switch (puzzle.puzzleType) {
-    case 'coding':
+    case 'TEXT_RIDDLE':
+    case 'text':
       return (
-        <CodingPuzzleView
+        <TextPuzzleView
           puzzle={puzzle}
           onSolved={onSolved}
           onSubmitAnswer={onSubmitAnswer}
           isSolved={isSolved}
         />
       );
-    case 'text':
+    case 'MCQ':
       return (
-        <TextPuzzleView
+        <McqPuzzleView
+          puzzle={puzzle}
+          onSolved={onSolved}
+          onSubmitAnswer={onSubmitAnswer}
+          isSolved={isSolved}
+        />
+      );
+    case 'IMAGE_QUIZ':
+      return (
+        <ImageQuizView
+          puzzle={puzzle}
+          onSolved={onSolved}
+          onSubmitAnswer={onSubmitAnswer}
+          isSolved={isSolved}
+        />
+      );
+    case 'IMAGE_MCQ':
+      return (
+        <ImageMcqView
           puzzle={puzzle}
           onSolved={onSolved}
           onSubmitAnswer={onSubmitAnswer}
@@ -66,6 +88,7 @@ export function PuzzleRenderer({
           isSolved={isSolved}
         />
       );
+    case 'coding':
     default:
       return (
         <CodingPuzzleView

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Send, FileText, CheckCircle2, AlertOctagon } from 'lucide-react';
+import { Send, FileText, CheckCircle2, AlertOctagon, HelpCircle } from 'lucide-react';
 import type { Riddle } from '../../types';
 
 export interface TextPuzzleViewProps {
@@ -23,7 +23,7 @@ export function TextPuzzleView({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!answer.trim() || isSolved) return;
+    if (!answer.trim() || isSolved || submitting) return;
 
     setSubmitting(true);
     setFeedback(null);
@@ -59,11 +59,11 @@ export function TextPuzzleView({
           </h3>
         </div>
         <span className="text-[10px] font-mono font-bold uppercase bg-electric-cyan/10 border border-electric-cyan/30 text-electric-cyan px-2 py-0.5 rounded shrink-0">
-          INQUIRY
+          TEXT RIDDLE
         </span>
       </div>
 
-      <div className="text-xs text-arena-muted space-y-2 leading-relaxed">
+      <div className="text-xs sm:text-sm text-gray-200 space-y-2 leading-relaxed">
         <p className="whitespace-pre-wrap">{puzzle.descriptionMd}</p>
       </div>
 
@@ -72,8 +72,11 @@ export function TextPuzzleView({
           label="Your Answer / Keyword"
           placeholder="e.g. surname or keyword"
           value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          disabled={isSolved}
+          onChange={(e) => {
+            setAnswer(e.target.value);
+            if (feedback && !feedback.isSuccess) setFeedback(null);
+          }}
+          disabled={isSolved || submitting}
           className="h-12 text-sm font-mono"
           required
         />
@@ -95,15 +98,25 @@ export function TextPuzzleView({
           </div>
         )}
 
+        {puzzle.hints && puzzle.hints.length > 0 && (
+          <div className="p-2.5 bg-arena-panel/60 border border-arena-border/50 rounded-xl text-[11px] text-arena-muted flex items-start gap-2">
+            <HelpCircle className="w-3.5 h-3.5 text-electric-amber shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold text-gray-300">Field Hint: </span>
+              <span>{puzzle.hints[0]}</span>
+            </div>
+          </div>
+        )}
+
         <Button
           type="submit"
           variant={isSolved ? 'success' : 'primary'}
           className="w-full h-12 text-xs font-bold uppercase tracking-wider"
           loading={submitting}
-          disabled={isSolved}
+          disabled={isSolved || submitting || !answer.trim()}
           icon={isSolved ? <CheckCircle2 className="w-4 h-4" /> : <Send className="w-4 h-4" />}
         >
-          {isSolved ? 'Answer Verified' : 'Submit Challenge Answer'}
+          {isSolved ? 'Answer Verified' : submitting ? 'Validating...' : 'Submit Challenge Answer'}
         </Button>
       </form>
     </div>

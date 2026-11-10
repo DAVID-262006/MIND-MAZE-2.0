@@ -377,7 +377,7 @@ export function AdminOverviewTab() {
           <div className="p-3 bg-arena-panel rounded-lg border border-arena-border/60">
             <span className="text-[10px] font-mono uppercase text-arena-muted block">Project Host</span>
             <span className="text-xs font-mono font-semibold text-white block mt-1 truncate">
-              {import.meta.env.VITE_SUPABASE_URL || 'Not configured'}
+              {(typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : undefined) || 'https://yersiudondrbdlerowth.supabase.co'}
             </span>
             <span className="text-[10px] text-emerald-400 font-mono block mt-0.5">
               Region: ap-south-1 (Mumbai)
