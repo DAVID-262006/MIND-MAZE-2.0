@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { StatusBadge } from '../components/ui/StatusBadge';
+import { BackendStatusBadge } from '../components/ui/BackendStatusBadge';
 import { useGameStore } from '../store/gameStore';
 
 export interface HomePageProps {
@@ -40,6 +41,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
         </div>
 
         <div className="flex items-center gap-3">
+          <BackendStatusBadge />
           <StatusBadge
             variant={
               config.status === 'live'
@@ -175,7 +177,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
         <div className="max-w-2xl mx-auto mt-10 p-3 bg-arena-card/40 border border-arena-border/50 rounded-xl text-left flex items-start gap-3">
           <Info className="w-4 h-4 text-electric-cyan shrink-0 mt-0.5" />
           <p className="text-[11px] text-arena-muted leading-relaxed">
-            <strong>Architecture Note:</strong> This is a lightweight, frontend-only application running entirely in your browser using LocalStorage. It is designed for centralized event management, tournament demonstration, and rapid static hosting without database servers.
+            <strong>Architecture Note:</strong> MIND MAZE 2.0 features hybrid resilience. The browser client connects to Supabase for live event synchronization, and seamlessly falls back to local storage if offline or during pre-deployment setup.
           </p>
         </div>
       </div>

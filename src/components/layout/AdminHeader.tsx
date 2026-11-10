@@ -2,6 +2,7 @@ import React from 'react';
 import { Shield, LogOut, ArrowLeft, ExternalLink } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { StatusBadge } from '../ui/StatusBadge';
+import { BackendStatusBadge } from '../ui/BackendStatusBadge';
 import type { GameStatus } from '../../types';
 
 export interface AdminHeaderProps {
@@ -30,13 +31,15 @@ export function AdminHeader({
               ADMIN CONTROL CENTER
             </span>
             <span className="text-[9px] sm:text-[10px] uppercase font-mono tracking-widest text-arena-muted block">
-              MISSION CONTROL &bull; LOCAL ENGINE
+              MISSION CONTROL &bull; SUPABASE READY
             </span>
           </div>
         </div>
 
         {/* Right: Status & Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
+          <BackendStatusBadge />
+
           <StatusBadge
             variant={
               status === 'live'

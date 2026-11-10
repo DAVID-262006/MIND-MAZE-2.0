@@ -11,10 +11,12 @@ import {
   Download, 
   Upload, 
   CheckCircle2, 
-  AlertTriangle 
+  AlertTriangle,
+  Database
 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { StatusBadge } from '../ui/StatusBadge';
+import { BackendStatusBadge } from '../ui/BackendStatusBadge';
 import { ConfirmationDialog } from '../ui/Dialog';
 import { useToast } from '../ui/Toast';
 import { useGameStore } from '../../store/gameStore';
@@ -353,6 +355,54 @@ export function AdminOverviewTab() {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Backend & Supabase Infrastructure Telemetry */}
+      <div className="p-5 bg-arena-card border border-arena-border rounded-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Database className="w-4 h-4 text-electric-cyan" />
+              <span>Backend &amp; Supabase Infrastructure</span>
+            </h3>
+            <p className="text-[11px] text-arena-muted mt-0.5">
+              Live status of cloud database connection and local fail-safe storage.
+            </p>
+          </div>
+          <BackendStatusBadge />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+          <div className="p-3 bg-arena-panel rounded-lg border border-arena-border/60">
+            <span className="text-[10px] font-mono uppercase text-arena-muted block">Project Host</span>
+            <span className="text-xs font-mono font-semibold text-white block mt-1 truncate">
+              {import.meta.env.VITE_SUPABASE_URL || 'Not configured'}
+            </span>
+            <span className="text-[10px] text-emerald-400 font-mono block mt-0.5">
+              Region: ap-south-1 (Mumbai)
+            </span>
+          </div>
+
+          <div className="p-3 bg-arena-panel rounded-lg border border-arena-border/60">
+            <span className="text-[10px] font-mono uppercase text-arena-muted block">Schema Execution</span>
+            <span className="text-xs font-mono font-semibold text-amber-300 block mt-1">
+              Pending Schema Review
+            </span>
+            <span className="text-[10px] text-arena-muted font-mono block mt-0.5">
+              schema.sql validated &bull; awaiting DB push
+            </span>
+          </div>
+
+          <div className="p-3 bg-arena-panel rounded-lg border border-arena-border/60">
+            <span className="text-[10px] font-mono uppercase text-arena-muted block">Active Engine Mode</span>
+            <span className="text-xs font-mono font-semibold text-electric-cyan block mt-1">
+              Hybrid Client (Local Engine Active)
+            </span>
+            <span className="text-[10px] text-arena-muted font-mono block mt-0.5">
+              100% playable in browser with zero server dependency
+            </span>
+          </div>
         </div>
       </div>
 

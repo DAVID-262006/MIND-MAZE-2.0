@@ -51,7 +51,7 @@ async function run() {
 
   console.log('\n--- Step 2: Test Leaderboard calculation ---');
   const { calculateLeaderboard } = await import('../services/leaderboardEngine');
-  const lb = calculateLeaderboard(teams, progress, config.eventStartedAt);
+  const lb = calculateLeaderboard(teams, progress, config.eventStartedAt ?? null);
   console.log('Leaderboard calculated successfully, entries:', lb.length);
 
   console.log('\n--- Step 3: Test App component with default hash ---');

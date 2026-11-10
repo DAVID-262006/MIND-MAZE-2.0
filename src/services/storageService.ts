@@ -381,4 +381,28 @@ export class StorageService {
       console.error('Failed to clear storage keys', e);
     }
   }
+
+  public static clearAllData(): void {
+    StorageService.clearAll();
+  }
+
+  /**
+   * Validate full backup data structure against schema
+   */
+  public static validateBackupData(backup: unknown): backup is FullGameBackup {
+    if (!backup || typeof backup !== 'object') {
+      return false;
+    }
+    const b = backup as Record<string, unknown>;
+    return (
+      b.version === '2.0.0' &&
+      typeof b.exportedAt === 'string' &&
+      b.config !== null &&
+      typeof b.config === 'object' &&
+      Array.isArray(b.teams) &&
+      Array.isArray(b.locations) &&
+      Array.isArray(b.riddles) &&
+      Array.isArray(b.routes)
+    );
+  }
 }
