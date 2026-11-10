@@ -1,0 +1,272 @@
+openapi: 3.0.3
+info:
+  title: Treasure Hunt Arena API
+  version: 1.0.0
+  description: Authoritative Game Engine & Operations API for Treasure Hunt Arena
+servers:
+  - url: http://localhost:4000
+    description: Local Development Engine
+paths:
+  /api/v1/health:
+    get:
+      summary: Health check & runtime statistics
+      responses:
+        '200':
+          description: Service is healthy
+
+  /api/v1/auth/team/login:
+    post:
+      summary: Team login with single-device binding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [teamCode, deviceFingerprint]
+              properties:
+                teamCode:
+                  type: string
+                  example: T01
+                password:
+                  type: string
+                  example: Arena2026!T01
+                deviceFingerprint:
+                  type: string
+                  example: fp_98a7sd8f7a6sdf
+      responses:
+        '200':
+          description: Login successful with JWT and bound session token
+        '401':
+          description: Invalid credentials
+
+  /api/v1/auth/admin/login:
+    post:
+      summary: Admin personnel authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                username:
+                  type: string
+                  example: admin
+                email:
+                  type: string
+                  example: director@arena.org
+                password:
+                  type: string
+                  example: arena2026
+      responses:
+        '200':
+          description: Admin session established
+
+  /api/v1/auth/logout:
+    post:
+      summary: Terminate session and invalidate auth cookies
+      responses:
+        '200':
+          description: Successfully logged out
+
+  /api/v1/arena/current-round:
+    get:
+      summary: Retrieve current round state and puzzle
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current round payload and countdown
+
+  /api/v1/arena/code/run-sample:
+    post:
+      summary: Execute sample test cases in sandbox
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                language:
+                  type: string
+                sourceCode:
+                  type: string
+      responses:
+        '200':
+          description: Sample execution results
+
+  /api/v1/arena/code/submit:
+    post:
+      summary: Submit final solution for authoritative evaluation
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Evaluation result and next checkpoint directions
+
+  /api/v1/arena/answer/submit:
+    post:
+      summary: Submit text, cryptography, or logic answer
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answer]
+              properties:
+                answer:
+                  type: string
+                roundNumber:
+                  type: integer
+      responses:
+        '200':
+          description: Answer verified status
+
+  /api/v1/arena/checkpoint/scan:
+    post:
+      summary: Scan physical checkpoint QR code token
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [qrNumericToken]
+              properties:
+                qrNumericToken:
+                  type: string
+                  example: "8492019481"
+      responses:
+        '200':
+          description: Checkpoint verified and next round unlocked
+
+  /api/v1/arena/anticheat/report:
+    post:
+      summary: Log telemetry violation from client anti-cheat watcher
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [violationType]
+              properties:
+                violationType:
+                  type: string
+                metadata:
+                  type: object
+      responses:
+        '200':
+          description: Violation recorded and strike count updated
+
+  /api/v1/admin/stats/overview:
+    get:
+      summary: Get live operational telemetry & round distribution
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Event overview statistics
+
+  /api/v1/admin/teams/live-status:
+    get:
+      summary: Retrieve real-time matrix of all 20 teams
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 20-team live status list
+
+  /api/v1/admin/teams/{id}/reset-session:
+    post:
+      summary: Reset hardware device binding for a team
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Session cleared
+
+  /api/v1/admin/locations:
+    get:
+      summary: List all 10 physical checkpoints
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Location records
+
+  /api/v1/admin/locations/{id}/regenerate-qr:
+    post:
+      summary: Regenerate compromised QR token with fresh cryptographic salt
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Updated location with new QR token
+
+  /api/v1/admin/routes/generate:
+    post:
+      summary: Generate and validate Shifted Latin Hypercube route allocations
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: 20-team orthogonal route allocations
+
+  /api/v1/admin/anticheat/violations:
+    get:
+      summary: Retrieve security violation audit trail
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Violations log
+
+  /api/v1/admin/game/start:
+    post:
+      summary: Synchronously release all teams into Round 1
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Match started
+
+  /api/v1/admin/leaderboard:
+    get:
+      summary: Official competition standings with elapsed completion times
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Ranked leaderboard list
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
