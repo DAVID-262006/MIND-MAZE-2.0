@@ -109,3 +109,4 @@ export async function checkSupabaseConnection(): Promise<SupabaseConnectionStatu
     };
   }
 }
+

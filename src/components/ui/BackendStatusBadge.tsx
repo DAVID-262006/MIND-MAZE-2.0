@@ -162,3 +162,4 @@ export function BackendStatusBadge({ className = '', compact = false }: BackendS
     </div>
   );
 }
+
