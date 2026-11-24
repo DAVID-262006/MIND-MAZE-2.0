@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Compass, KeyRound, User, AlertOctagon, Sparkles, ArrowRight, Maximize2 } from 'lucide-react';
+import { Compass, KeyRound, User, AlertOctagon, Sparkles, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { useFullscreen } from '../../hooks/useFullscreen';
 
@@ -13,8 +13,9 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
   const { teams, loginTeam } = useGameStore();
   const { enterFullscreen } = useFullscreen();
 
-  const [teamCode, setTeamCode] = useState('');
-  const [accessCode, setAccessCode] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -22,21 +23,21 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     e.preventDefault();
     setErrorMessage(null);
 
-    const cleanCode = teamCode.trim().toUpperCase();
-    const cleanAccess = accessCode.trim();
+    const cleanUser = username.trim();
+    const cleanPass = password.trim();
 
-    if (!cleanCode) {
-      setErrorMessage('Please enter your designated Team ID / Code');
+    if (!cleanUser) {
+      setErrorMessage('Please enter your team username or team code.');
       return;
     }
 
-    if (!cleanAccess) {
-      setErrorMessage('Please enter your team access code or password');
+    if (!cleanPass) {
+      setErrorMessage('Please enter your designated team password.');
       return;
     }
 
     setSubmitting(true);
-    const res = await loginTeam(cleanCode, cleanAccess);
+    const res = await loginTeam(cleanUser, cleanPass);
     setSubmitting(false);
 
     if (!res.success) {
@@ -49,8 +50,8 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     onLoginSuccess?.();
   };
 
-  const handleSelectTeam = (code: string) => {
-    setTeamCode(code);
+  const handleSelectTeam = (t: { username?: string | null; teamCode: string }) => {
+    setUsername(t.username || t.teamCode.toLowerCase());
     setErrorMessage(null);
   };
 
@@ -58,7 +59,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
   const quickTeams = teams.slice(0, 4);
 
   return (
-    <div className="min-h-[90vh] flex flex-col justify-center items-center px-4 py-6 max-w-md mx-auto w-full">
+    <div className="min-h-[90vh] flex flex-col justify-center items-center px-4 py-6 max-w-md mx-auto w-full select-none">
       {/* Brand Hologram */}
       <div className="text-center space-y-3 mb-6">
         <div className="inline-flex p-3.5 bg-electric-cyan/10 border border-electric-cyan/40 rounded-2xl text-electric-cyan shadow-[0_0_25px_rgba(0,242,254,0.25)] animate-pulse-slow">
@@ -66,10 +67,10 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
         </div>
         <div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-wider text-white font-mono">
-            TREASURE HUNT ARENA
+            MIND MAZE 2.0
           </h1>
           <p className="text-[11px] font-mono tracking-widest text-electric-cyan uppercase mt-0.5">
-            COMPETITOR ARENA ACCESS
+            PARTICIPANT ARENA ACCESS
           </p>
         </div>
       </div>
@@ -86,26 +87,40 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
 
           <div className="space-y-3">
             <Input
-              label="Team Code"
-              placeholder="e.g. T01, T02"
-              value={teamCode}
-              onChange={(e) => setTeamCode(e.target.value)}
+              label="Team Username"
+              placeholder="e.g. team01, alpha_centauri"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               leadingIcon={<User className="w-4 h-4" />}
-              className="h-12 text-base font-mono uppercase"
-              autoCapitalize="characters"
+              className="h-12 text-base font-mono"
+              autoCapitalize="none"
+              autoCorrect="off"
               required
             />
 
-            <Input
-              label="Access Code"
-              type="password"
-              placeholder="Enter designated team passcode"
-              value={accessCode}
-              onChange={(e) => setAccessCode(e.target.value)}
-              leadingIcon={<KeyRound className="w-4 h-4" />}
-              className="h-12 text-base font-mono"
-              required
-            />
+            <div>
+              <label className="block text-xs font-mono font-bold text-arena-muted uppercase tracking-wider mb-1">
+                Team Password
+              </label>
+              <div className="relative">
+                <Input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter administrator-assigned password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  leadingIcon={<KeyRound className="w-4 h-4" />}
+                  className="h-12 text-base font-mono pr-11"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-3.5 text-arena-muted hover:text-white"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* Prominent ENTER ARENA Button (min 48px touch target) */}
@@ -125,9 +140,9 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-mono uppercase tracking-wider text-arena-muted flex items-center gap-1">
               <Sparkles className="w-3 h-3 text-electric-cyan" />
-              <span>Select Registered Team</span>
+              <span>Registered Teams Quick-Pick</span>
             </span>
-            <span className="text-[9px] font-mono text-arena-muted">Tap to Select Code</span>
+            <span className="text-[9px] font-mono text-arena-muted">Tap to Fill Username</span>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -135,27 +150,23 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
               <button
                 key={t.id}
                 type="button"
-                onClick={() => handleSelectTeam(t.teamCode)}
+                onClick={() => handleSelectTeam(t)}
                 className="p-2.5 text-left bg-arena-panel hover:bg-arena-hover active:scale-[0.98] border border-arena-border hover:border-electric-cyan/50 rounded-xl transition-all"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono font-bold text-electric-cyan">{t.teamCode}</span>
-                  <span className="text-[10px] font-mono text-arena-muted">&rarr;</span>
+                  <span className="text-xs font-mono font-bold text-electric-cyan">
+                    {t.teamCode}
+                  </span>
+                  <span className="text-[10px] font-mono text-arena-muted">
+                    {t.username || t.teamCode.toLowerCase()}
+                  </span>
                 </div>
-                <span className="text-[11px] text-white truncate block font-medium mt-0.5">
+                <div className="text-[11px] text-white truncate mt-0.5 font-medium">
                   {t.teamName}
-                </span>
+                </div>
               </button>
             ))}
           </div>
-        </div>
-
-        {/* Fullscreen & Single Device Rule Callout */}
-        <div className="p-3 bg-arena-panel/50 border border-arena-border/60 rounded-xl flex items-start gap-2.5 text-left text-[11px] text-arena-muted leading-tight">
-          <Maximize2 className="w-4 h-4 text-electric-cyan shrink-0 mt-0.5" />
-          <span>
-            Tapping <strong>ENTER ARENA</strong> requests immersive fullscreen. Leaving this screen or switching tabs records anti-cheat strikes.
-          </span>
         </div>
       </div>
     </div>

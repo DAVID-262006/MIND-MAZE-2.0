@@ -24,22 +24,22 @@ console.log('TREASURE HUNT ARENA — AUTOMATED CORE VERIFICATION');
 console.log('====================================================\n');
 
 // ----------------------------------------------------
-// TEST 1: Route Generation (Balanced Latin Square)
+// TEST 1: Route Generation (Balanced Latin Square for 9 Locations)
 // ----------------------------------------------------
 console.log('--- 1. Testing Route Allocation Algorithm ---');
 const teamIds = INITIAL_TEAMS.map((t) => t.id);
 const locIds = INITIAL_LOCATIONS.map((l) => l.id);
 
-const routeResult = generateBalancedRoutes(teamIds, locIds, 10);
+const routeResult = generateBalancedRoutes(teamIds, locIds, 9);
 
 assert(routeResult.isValid === true, 'Route plan must be mathematically valid');
-assert(routeResult.matrix.length === 200, '20 teams * 10 rounds = 200 route assignments');
+assert(routeResult.matrix.length === 180, '20 teams * 9 rounds = 180 route assignments');
 assert(routeResult.verificationReport.collisions.length === 0, 'Zero route collisions detected');
-assert(routeResult.verificationReport.allTeamsVisitAllLocations === true, 'All 20 teams visit all 10 locations exactly once');
-assert(routeResult.verificationReport.eachRoundEquipartition === true, 'Exactly 2 teams per location per round (equipartition)');
+assert(routeResult.verificationReport.allTeamsVisitAllLocations === true, 'All 20 teams visit all 9 locations exactly once');
+assert(routeResult.verificationReport.eachRoundEquipartition === true, 'Balanced teams per location per round (equipartition, max 3 <= capacity 4)');
 
 // Verify specific round distribution
-for (let r = 1; r <= 10; r++) {
+for (let r = 1; r <= 9; r++) {
   const roundAssignments = routeResult.matrix.filter((m) => m.roundNumber === r);
   assert(roundAssignments.length === 20, `Round ${r} must have 20 assignments`);
   
@@ -49,7 +49,8 @@ for (let r = 1; r <= 10; r++) {
   });
   
   locIds.forEach((locId) => {
-    assert(locCounts.get(locId) === 2, `Round ${r}, Location ${locId} must have exactly 2 teams assigned`);
+    const count = locCounts.get(locId) || 0;
+    assert(count >= 2 && count <= 3, `Round ${r}, Location ${locId} has balanced ${count} teams (expected 2 or 3)`);
   });
 }
 
@@ -197,15 +198,15 @@ assert(dummyTeam.strikes === 4 && dummyTeam.status === 'eliminated', 'Violation 
 console.log('\n--- 6. Testing Leaderboard Ranking & Tie-Breakers ---');
 
 const testTeams: Team[] = [
-  { id: 't1', teamCode: 'T01', teamName: 'Fast Clean Winner', status: 'completed', currentRound: 10, strikes: 0, createdAt: new Date(now).toISOString() },
-  { id: 't2', teamCode: 'T02', teamName: 'Slow Clean Finisher', status: 'completed', currentRound: 10, strikes: 1, createdAt: new Date(now).toISOString() },
+  { id: 't1', teamCode: 'T01', teamName: 'Fast Clean Winner', status: 'completed', currentRound: 9, strikes: 0, createdAt: new Date(now).toISOString() },
+  { id: 't2', teamCode: 'T02', teamName: 'Slow Clean Finisher', status: 'completed', currentRound: 9, strikes: 1, createdAt: new Date(now).toISOString() },
   { id: 't3', teamCode: 'T03', teamName: 'Eliminated Team', status: 'eliminated', currentRound: 4, strikes: 3, createdAt: new Date(now).toISOString() },
   { id: 't4', teamCode: 'T04', teamName: 'Active Mid-Pack', status: 'active', currentRound: 6, strikes: 0, createdAt: new Date(now).toISOString() },
 ];
 
 const testProgressList: TeamRoundProgress[] = [
-  // T1: 10 rounds completed, finished at +1200s (20m)
-  ...Array.from({ length: 10 }, (_, i) => ({
+  // T1: 9 rounds completed, finished at +1200s (20m)
+  ...Array.from({ length: 9 }, (_, i) => ({
     teamId: 't1',
     roundNumber: i + 1,
     puzzleSolved: true,
@@ -216,8 +217,8 @@ const testProgressList: TeamRoundProgress[] = [
     graceDeadlineAt: new Date(now + 330000).toISOString(),
     qrScannedAt: new Date(now + 1200000).toISOString(),
   })),
-  // T2: 10 rounds completed, finished at +2400s (40m)
-  ...Array.from({ length: 10 }, (_, i) => ({
+  // T2: 9 rounds completed, finished at +2400s (40m)
+  ...Array.from({ length: 9 }, (_, i) => ({
     teamId: 't2',
     roundNumber: i + 1,
     puzzleSolved: true,

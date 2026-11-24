@@ -1,12 +1,7 @@
 import React from 'react';
 import { CodingPuzzleView } from './CodingPuzzleView';
 import { ThreePartTextView } from './ThreePartTextView';
-import { TextPuzzleView } from './TextPuzzleView';
-import { CryptoPuzzleView } from './CryptoPuzzleView';
-import { LogicPuzzleView } from './LogicPuzzleView';
-import { McqPuzzleView } from './McqPuzzleView';
-import { ImageQuizView } from './ImageQuizView';
-import { ImageMcqView } from './ImageMcqView';
+import { AlertCircle } from 'lucide-react';
 import type { Riddle, ThreePartResult } from '../../types';
 
 export interface PuzzleRendererProps {
@@ -44,64 +39,8 @@ export function PuzzleRenderer({
         />
       );
     case 'CODE_BASED':
-    case 'coding':
       return (
         <CodingPuzzleView
-          puzzle={puzzle}
-          onSolved={onSolved}
-          onSubmitAnswer={onSubmitAnswer}
-          isSolved={isSolved}
-        />
-      );
-    case 'TEXT_RIDDLE':
-    case 'text':
-      return (
-        <TextPuzzleView
-          puzzle={puzzle}
-          onSolved={onSolved}
-          onSubmitAnswer={onSubmitAnswer}
-          isSolved={isSolved}
-        />
-      );
-    case 'MCQ':
-      return (
-        <McqPuzzleView
-          puzzle={puzzle}
-          onSolved={onSolved}
-          onSubmitAnswer={onSubmitAnswer}
-          isSolved={isSolved}
-        />
-      );
-    case 'IMAGE_QUIZ':
-      return (
-        <ImageQuizView
-          puzzle={puzzle}
-          onSolved={onSolved}
-          onSubmitAnswer={onSubmitAnswer}
-          isSolved={isSolved}
-        />
-      );
-    case 'IMAGE_MCQ':
-      return (
-        <ImageMcqView
-          puzzle={puzzle}
-          onSolved={onSolved}
-          onSubmitAnswer={onSubmitAnswer}
-          isSolved={isSolved}
-        />
-      );
-    case 'crypto':
-      return (
-        <CryptoPuzzleView
-          puzzle={puzzle}
-          onSolved={onSolved}
-          onSubmitAnswer={onSubmitAnswer}
-          isSolved={isSolved}
-        />
-      );
-    case 'logic':
-      return (
-        <LogicPuzzleView
           puzzle={puzzle}
           onSolved={onSolved}
           onSubmitAnswer={onSubmitAnswer}
@@ -110,12 +49,13 @@ export function PuzzleRenderer({
       );
     default:
       return (
-        <CodingPuzzleView
-          puzzle={puzzle}
-          onSolved={onSolved}
-          onSubmitAnswer={onSubmitAnswer}
-          isSolved={isSolved}
-        />
+        <div className="p-6 bg-red-950/40 border border-red-500/40 rounded-2xl text-center space-y-2">
+          <AlertCircle className="w-6 h-6 text-red-400 mx-auto" />
+          <p className="text-sm font-bold text-red-300">Unsupported Question Format</p>
+          <p className="text-xs text-zinc-300">
+            Image-based and MCQ question types have been deprecated. Only Code-Based and Three-Part Text challenges are supported in Mind Maze 2.0.
+          </p>
+        </div>
       );
   }
 }

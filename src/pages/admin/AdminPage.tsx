@@ -4,6 +4,7 @@ import { AdminLoginView } from '../../components/admin/AdminLoginView';
 import { AdminOverviewTab } from '../../components/admin/AdminOverviewTab';
 import { AdminLiveMonitoringTab } from '../../components/admin/AdminLiveMonitoringTab';
 import { AdminTeamsTab } from '../../components/admin/AdminTeamsTab';
+import { AdminTeamCredentialsTab } from '../../components/admin/AdminTeamCredentialsTab';
 import { AdminPuzzlesTab } from '../../components/admin/AdminPuzzlesTab';
 import { AdminLocationsTab } from '../../components/admin/AdminLocationsTab';
 import { AdminRoutesTab } from '../../components/admin/AdminRoutesTab';
@@ -18,12 +19,14 @@ import {
   ShieldAlert, 
   FileCode2, 
   Sliders, 
+  KeyRound,
 } from 'lucide-react';
 
 type AdminTab =
   | 'overview'
   | 'monitoring'
   | 'teams'
+  | 'credentials'
   | 'puzzles'
   | 'locations'
   | 'routes'
@@ -59,8 +62,9 @@ export function AdminPage({ onNavigateHome, onNavigatePlayer }: AdminPageProps) 
     { id: 'overview', label: 'Overview', icon: <Activity className="w-3.5 h-3.5" /> },
     { id: 'monitoring', label: 'Live Monitoring', icon: <Activity className="w-3.5 h-3.5 text-electric-cyan" /> },
     { id: 'teams', label: 'Teams (20)', icon: <Users className="w-3.5 h-3.5" /> },
-    { id: 'puzzles', label: 'Riddles (10)', icon: <FileCode2 className="w-3.5 h-3.5" /> },
-    { id: 'locations', label: 'Stations (10)', icon: <MapPin className="w-3.5 h-3.5" /> },
+    { id: 'credentials', label: 'Team Credentials', icon: <KeyRound className="w-3.5 h-3.5 text-electric-amber" /> },
+    { id: 'puzzles', label: 'Questions (9)', icon: <FileCode2 className="w-3.5 h-3.5" /> },
+    { id: 'locations', label: 'Stations (9)', icon: <MapPin className="w-3.5 h-3.5" /> },
     { id: 'routes', label: 'Route Matrix', icon: <Sliders className="w-3.5 h-3.5" /> },
     { id: 'security', label: 'Anti-Cheat', icon: <ShieldAlert className="w-3.5 h-3.5 text-electric-amber" /> },
     { id: 'leaderboard', label: 'Leaderboard', icon: <Trophy className="w-3.5 h-3.5 text-electric-emerald" /> },
@@ -102,6 +106,7 @@ export function AdminPage({ onNavigateHome, onNavigatePlayer }: AdminPageProps) 
           {activeTab === 'overview' && <AdminOverviewTab />}
           {activeTab === 'monitoring' && <AdminLiveMonitoringTab />}
           {activeTab === 'teams' && <AdminTeamsTab />}
+          {activeTab === 'credentials' && <AdminTeamCredentialsTab />}
           {activeTab === 'puzzles' && <AdminPuzzlesTab />}
           {activeTab === 'locations' && <AdminLocationsTab />}
           {activeTab === 'routes' && <AdminRoutesTab />}

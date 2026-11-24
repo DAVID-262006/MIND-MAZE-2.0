@@ -1,25 +1,29 @@
 import type { RouteAssignment, RouteAllocationResult } from '../types';
 
 /**
- * Generates a balanced randomized route matrix for 20 teams and 10 locations across 10 rounds.
+ * Generates a balanced randomized route matrix for 20 teams and 9 locations across 9 rounds.
  * Satisfies:
- * 1. Every team visits all 10 locations exactly once.
- * 2. Every round assigns exactly 2 teams to each location (20 / 10 = 2).
+ * 1. Every team visits all 9 locations exactly once in 9 rounds.
+ * 2. Every round assigns teams balanced across all 9 locations (7 stations have 2 teams, 2 stations have 3 teams, max 3 <= station capacity 4).
+ * 3. Zero collisions / duplicate station visits.
  */
 export function generateBalancedRoutes(
   teamIds: string[],
   locationIds: number[],
-  roundCount = 10,
+  roundCount = 9,
   options?: { randomizeTeams?: boolean; randomizeLocations?: boolean }
 ): RouteAllocationResult {
   if (teamIds.length !== 20) {
     throw new Error(`Expected exactly 20 teams, received ${teamIds.length}`);
   }
-  if (locationIds.length !== 10) {
-    throw new Error(`Expected exactly 10 locations, received ${locationIds.length}`);
+  if (locationIds.length !== 9) {
+    throw new Error(`Expected exactly 9 locations, received ${locationIds.length}`);
+  }
+  if (roundCount !== 9) {
+    throw new Error(`Expected exactly 9 rounds, received ${roundCount}`);
   }
 
-  // 1. Randomize the order of locations
+  // 1. Optional random shuffle of locations
   const shuffledLocations = [...locationIds];
   if (options?.randomizeLocations !== false) {
     for (let i = shuffledLocations.length - 1; i > 0; i--) {
@@ -30,7 +34,7 @@ export function generateBalancedRoutes(
     }
   }
 
-  // 2. Randomize the order of teams
+  // 2. Optional random shuffle of teams
   const shuffledTeams = [...teamIds];
   if (options?.randomizeTeams !== false) {
     for (let i = shuffledTeams.length - 1; i > 0; i--) {
@@ -42,13 +46,18 @@ export function generateBalancedRoutes(
   }
 
   const matrix: RouteAssignment[] = [];
-  const groupA = shuffledTeams.slice(0, 10);
-  const groupB = shuffledTeams.slice(10, 20);
+  const locationCount = 9;
 
-  // Group A uses shift offset 1: locIndex = (i + (r - 1)) mod 10
-  groupA.forEach((teamId, i) => {
+  // 3. Latin Square Cyclic Shift Routing
+  // For team index i (0..19), offset = i % 9.
+  // In round r (1..9), locIndex = (offset + (r - 1)) % 9.
+  // Guarantees:
+  // - Each team visits all 9 locations in 9 rounds.
+  // - In every round, 7 locations have exactly 2 teams and 2 locations have exactly 3 teams.
+  shuffledTeams.forEach((teamId, i) => {
+    const offset = i % locationCount;
     for (let r = 1; r <= roundCount; r++) {
-      const locIndex = (i + (r - 1)) % 10;
+      const locIndex = (offset + (r - 1)) % locationCount;
       matrix.push({
         teamId,
         roundNumber: r,
@@ -57,22 +66,7 @@ export function generateBalancedRoutes(
     }
   });
 
-  // Group B uses shift offset: locIndex = (j + (r - 1) + 5) mod 10 (half-period orthogonal shift)
-  // This guarantees that in round r, Group A covers all 10 locations (indices 0..9)
-  // and Group B covers all 10 locations (indices 5,6,7,8,9,0,1,2,3,4)
-  // Therefore, for every location in round r, exactly 1 team from Group A and 1 team from Group B attend it => exactly 2 teams!
-  groupB.forEach((teamId, j) => {
-    for (let r = 1; r <= roundCount; r++) {
-      const locIndex = (j + (r - 1) + 5) % 10;
-      matrix.push({
-        teamId,
-        roundNumber: r,
-        locationId: shuffledLocations[locIndex]!,
-      });
-    }
-  });
-
-  // Verification Assertions
+  // 4. Verification Assertions
   const collisions: string[] = [];
   let allTeamsVisitAllLocations = true;
   let eachRoundEquipartition = true;
@@ -83,13 +77,13 @@ export function generateBalancedRoutes(
     matrix
       .filter((m) => m.teamId === tId)
       .forEach((m) => visited.add(m.locationId));
-    if (visited.size !== locationIds.length) {
+    if (visited.size !== locationCount) {
       allTeamsVisitAllLocations = false;
       collisions.push(`Team ${tId} only visits ${visited.size} distinct locations`);
     }
   });
 
-  // Check 2: Exactly 2 teams per location per round
+  // Check 2: Balanced distribution (2 or 3 teams per location per round, well under capacity 4)
   for (let r = 1; r <= roundCount; r++) {
     const counts = new Map<number, number>();
     matrix
@@ -100,9 +94,9 @@ export function generateBalancedRoutes(
 
     locationIds.forEach((locId) => {
       const count = counts.get(locId) || 0;
-      if (count !== 2) {
+      if (count < 2 || count > 3) {
         eachRoundEquipartition = false;
-        collisions.push(`Round ${r}, Location ${locId} has ${count} teams (expected 2)`);
+        collisions.push(`Round ${r}, Location ${locId} has ${count} teams (expected 2 or 3)`);
       }
     });
   }
@@ -120,4 +114,3 @@ export function generateBalancedRoutes(
     },
   };
 }
-

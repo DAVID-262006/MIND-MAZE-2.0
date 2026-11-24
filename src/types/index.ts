@@ -16,15 +16,7 @@ export type RoundStatus =
 
 export type PuzzleType = 
   | 'CODE_BASED'
-  | 'THREE_PART_TEXT'
-  | 'TEXT_RIDDLE' 
-  | 'MCQ' 
-  | 'IMAGE_QUIZ' 
-  | 'IMAGE_MCQ' 
-  | 'coding' 
-  | 'text' 
-  | 'crypto' 
-  | 'logic';
+  | 'THREE_PART_TEXT';
 
 export type SupportedLanguage = 'c' | 'cpp' | 'python' | 'java';
 
@@ -115,9 +107,11 @@ export interface Team {
   id: string;
   teamCode: string;
   teamName: string;
+  username?: string | null;
+  credentialsConfigured?: boolean;
   credentialsRandomized?: boolean; // True once server-side cryptographic credentials have been issued
   status: TeamStatus;
-  currentRound: number; // 1 - 10
+  currentRound: number; // 1 - 9
   strikes: number; // 0 - 4 (1-3 warnings, 4th = automatic elimination)
   completedAt?: string | null;
   eliminationReason?: string | null;

@@ -115,14 +115,19 @@ export class SupabaseService {
    * ------------------------------------------------------------------------- */
 
   /**
-   * Team authentication: login_team(p_team_code, p_passcode, p_device_fingerprint)
+   * Team authentication: login_team(p_username, p_password, p_device_fingerprint)
+   * Supports both custom team usernames and team codes.
    */
-  public static async loginTeam(teamCode: string, passcode: string, deviceFingerprint?: string) {
+  public static async loginTeam(usernameOrCode: string, passwordOrPasscode: string, deviceFingerprint?: string) {
+    const cleanUser = usernameOrCode.trim();
+    const cleanPass = passwordOrPasscode.trim();
+
     return this.callRpc<{
       success: boolean;
       team_id: string;
       team_code: string;
       team_name: string;
+      username?: string;
       session_token: string;
       current_round: number;
       status: string;
@@ -130,8 +135,10 @@ export class SupabaseService {
       error?: string;
       message?: string;
     }>('login_team', {
-      p_team_code: teamCode.trim().toUpperCase(),
-      p_passcode: passcode.trim(),
+      p_username: cleanUser,
+      p_password: cleanPass,
+      p_team_code: cleanUser.toUpperCase(),
+      p_passcode: cleanPass,
       p_device_fingerprint: deviceFingerprint || null,
     });
   }
@@ -709,6 +716,55 @@ export class SupabaseService {
     });
   }
 
+  public static async adminSetTeamCredentials(teamId: string, username: string, password: string, adminToken: string) {
+    return this.callRpc<{
+      success: boolean;
+      team_id?: string;
+      team_code?: string;
+      username?: string;
+      credentials_configured?: boolean;
+      error?: string;
+      message?: string;
+    }>('admin_set_team_credentials', {
+      p_admin_token: adminToken,
+      p_team_id: teamId,
+      p_username: username.trim().toLowerCase(),
+      p_password: password.trim(),
+    });
+  }
+
+  public static async adminResetTeamPassword(teamId: string, newPassword: string, adminToken: string) {
+    return this.callRpc<{
+      success: boolean;
+      team_id?: string;
+      team_code?: string;
+      error?: string;
+      message?: string;
+    }>('admin_reset_team_password', {
+      p_admin_token: adminToken,
+      p_team_id: teamId,
+      p_new_password: newPassword.trim(),
+    });
+  }
+
+  public static async adminBatchGenerateTeamCredentials(adminToken: string) {
+    return this.callRpc<{
+      success: boolean;
+      count?: number;
+      credentials?: {
+        team_id: string;
+        team_code: string;
+        team_name: string;
+        username: string;
+        password: string;
+      }[];
+      error?: string;
+      message?: string;
+    }>('admin_batch_generate_team_credentials', {
+      p_admin_token: adminToken,
+    });
+  }
+
   public static async eliminateTeam(teamId: string, reason: string, adminToken: string) {
     return this.callRpc<{ success: boolean; message: string }>('admin_eliminate_team', {
       p_admin_token: adminToken,
@@ -887,7 +943,7 @@ export class SupabaseService {
     try {
       const { data, error } = await supabase
         .from('teams')
-        .select('id, team_code, team_name, credentials_randomized, status, current_round, total_strikes, elimination_reason, started_at, completed_at, total_time_ms, created_at')
+        .select('id, team_code, team_name, username, credentials_configured, credentials_randomized, status, current_round, total_strikes, elimination_reason, started_at, completed_at, total_time_ms, created_at')
         .order('team_code');
 
       if (error || !data) return [];
@@ -896,6 +952,8 @@ export class SupabaseService {
         id: String(t.id),
         teamCode: String(t.team_code),
         teamName: String(t.team_name),
+        username: (t.username as string) || null,
+        credentialsConfigured: Boolean(t.credentials_configured),
         credentialsRandomized: Boolean(t.credentials_randomized),
         status: (t.status as Team['status']) || 'ready',
         currentRound: Number(t.current_round || 1),

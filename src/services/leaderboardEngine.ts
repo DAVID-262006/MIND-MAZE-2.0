@@ -36,7 +36,7 @@ export function calculateLeaderboard(
     const isEligibleWinner =
       team.status === 'completed' &&
       team.strikes < 4 &&
-      completedRounds === 10;
+      completedRounds >= 9;
 
     let lastActivityAt = team.createdAt;
     for (const p of teamProgress) {

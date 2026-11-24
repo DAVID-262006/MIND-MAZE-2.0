@@ -20,7 +20,8 @@ import {
   Lock,
   Unlock,
   LogOut,
-  Maximize2
+  Maximize2,
+  CheckCircle2
 } from 'lucide-react';
 import type { Team, GameEventConfig, ViolationType } from '../../types';
 
@@ -65,7 +66,7 @@ export function ActiveGameView({
 
   const cooldownRef = useRef(false);
 
-  const currentRound = Math.max(1, Math.min(10, team.currentRound || 1));
+  const currentRound = Math.max(1, Math.min(9, team.currentRound || 1));
   const currentPuzzle = riddles.find((r) => r.roundNumber === currentRound) || riddles[0] || null;
   const currentProgress = getTeamProgress(team.id, currentRound);
   const assignedLocation = getTeamAssignedLocation(team.id, currentRound);
@@ -229,7 +230,7 @@ export function ActiveGameView({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="text-[11px] font-mono uppercase tracking-wider text-electric-cyan font-bold bg-electric-cyan/10 px-2 py-0.5 rounded border border-electric-cyan/20">
-                Round {currentRound} of 10
+                Round {currentRound} of 9
               </span>
               {isGracePeriod && (
                 <span className="text-[11px] font-mono uppercase tracking-wider text-electric-amber font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-electric-amber/30 animate-pulse">
@@ -297,55 +298,66 @@ export function ActiveGameView({
           )}
         </div>
 
-        {/* 1. Puzzle Challenge View (Question displayed first) */}
+        {/* 1. Location Riddle Section (Displayed when participant reaches assigned station) */}
+        <div className="bg-arena-card border border-arena-border rounded-2xl p-4 sm:p-5 shadow-lg space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-electric-cyan/15 border border-electric-cyan/30 flex items-center justify-center text-electric-cyan shrink-0">
+                <MapPin className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-widest text-electric-cyan font-bold block">
+                  Station #{assignedLocation?.locationNumber || currentRound}
+                </span>
+                <h3 className="text-sm font-bold text-white">
+                  {assignedLocation?.name || `Checkpoint Station #${currentRound}`}
+                </h3>
+              </div>
+            </div>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-arena-panel text-electric-amber border border-electric-amber/30">
+              Location Riddle
+            </span>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-arena-panel/90 border border-arena-border text-xs sm:text-sm text-zinc-100 font-sans leading-relaxed whitespace-pre-wrap">
+            <p className="italic text-white">{riddleClueText}</p>
+          </div>
+        </div>
+
+        {/* 2. Round Challenge View (Question solved using supported type) */}
         <div className="space-y-3">
           <PuzzleRenderer
             puzzle={currentPuzzle}
             isSolved={puzzleSolved}
             onSolved={() => {
-              success('Answer Verified!', 'Station navigation riddle unlocked below.');
+              success('Challenge Solved!', 'Station QR scanner unlocked below.');
             }}
             onSubmitAnswer={handlePuzzleSubmit}
           />
         </div>
 
-        {/* 2. Station Navigation Riddle & Clue (Revealed ONLY after question is validated) */}
+        {/* 3. Station QR Verification Button (Unlocked after solving challenge) */}
         {puzzleSolved && (
-          <div className="bg-arena-card border-2 border-electric-cyan/60 rounded-2xl p-4 sm:p-5 shadow-[0_0_35px_rgba(0,242,254,0.2)] space-y-3.5 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-xl bg-electric-cyan/15 border border-electric-cyan/40 flex items-center justify-center text-electric-cyan shrink-0">
-                  <MapPin className="w-5 h-5" />
+          <div className="bg-arena-card border-2 border-electric-emerald/60 rounded-2xl p-4 sm:p-5 shadow-[0_0_35px_rgba(16,185,129,0.2)] space-y-3 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-electric-emerald/30 flex items-center justify-center text-electric-emerald">
+                  <CheckCircle2 className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-electric-cyan font-bold block">
-                    Station Clue Unlocked
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-electric-emerald font-bold block">
+                    Challenge Verified
                   </span>
-                  <h3 className="text-sm sm:text-base font-bold text-white leading-tight">
-                    Decode Checkpoint Location
-                  </h3>
+                  <h4 className="text-xs font-bold text-white">Scan Station #{assignedLocation?.locationNumber || currentRound} Placard</h4>
                 </div>
               </div>
-
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-mono font-bold bg-emerald-500/15 text-electric-emerald border border-electric-emerald/40 shrink-0">
-                <Unlock className="w-3.5 h-3.5" />
-                CLUE UNLOCKED
-              </span>
+              <span className="text-[10px] font-mono text-arena-muted">Round {currentRound}/9</span>
             </div>
 
-            {/* Navigation Riddle Clue */}
-            <div className="p-3.5 rounded-xl bg-arena-panel/90 border border-arena-border text-xs sm:text-sm text-zinc-100 leading-relaxed font-sans space-y-2">
-              <p className="font-semibold text-white whitespace-pre-wrap">{riddleClueText}</p>
-              <p className="text-[11px] font-mono text-arena-muted pt-1.5 border-t border-arena-border/50">
-                Decode this navigation riddle to locate your physical checkpoint station on campus, then scan its QR code below.
-              </p>
-            </div>
-
-            {/* Clearly visible Scan QR option directly below the riddle */}
             <button
               type="button"
               onClick={() => setIsQrModalOpen(true)}
-              className="w-full h-13 rounded-xl font-mono font-bold text-sm flex items-center justify-center gap-2.5 bg-gradient-to-r from-cyan-400 via-electric-cyan to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-black shadow-[0_0_25px_rgba(0,242,254,0.4)] active:scale-[0.98] transition-all select-none cursor-pointer"
+              className="w-full h-13 rounded-xl font-mono font-bold text-sm flex items-center justify-center gap-2.5 bg-gradient-to-r from-emerald-400 via-teal-400 to-electric-cyan hover:from-emerald-300 hover:to-cyan-300 text-black shadow-[0_0_25px_rgba(16,185,129,0.4)] active:scale-[0.98] transition-all select-none cursor-pointer"
             >
               <QrCode className="w-5 h-5 text-black" />
               <span>SCAN STATION QR CODE</span>

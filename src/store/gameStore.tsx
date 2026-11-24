@@ -51,6 +51,9 @@ interface GameContextType {
   eliminateTeam: (id: string, reason: string) => Promise<void> | void;
   reinstateTeam: (id: string) => Promise<void> | void;
   issueTeamCredentials: (issued: { team_id: string; team_code: string; passcode: string }[]) => void;
+  setTeamCredentials: (teamId: string, username: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  resetTeamPassword: (teamId: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
+  batchGenerateTeamCredentials: () => Promise<{ success: boolean; error?: string; count?: number; credentials?: { team_id: string; team_code: string; team_name: string; username: string; password: string }[] }>;
   updateLocation: (id: number, updates: Partial<LocationCheckpoint>) => void;
   regenerateLocationToken: (id: number) => string;
   saveRiddle: (riddle: Riddle) => void;
@@ -731,13 +734,146 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
+  const setTeamCredentials = useCallback(async (teamId: string, username: string, password: string) => {
+    const cleanUser = username.trim().toLowerCase();
+    const cleanPass = password.trim();
+
+    if (!cleanUser || cleanUser.length < 3 || cleanUser.length > 30) {
+      return { success: false, error: 'Username must be between 3 and 30 characters.' };
+    }
+    if (!/^[a-z0-9_-]+$/.test(cleanUser)) {
+      return { success: false, error: 'Username may only contain letters, numbers, underscores, and hyphens.' };
+    }
+    if (!cleanPass || cleanPass.length < 6) {
+      return { success: false, error: 'Password must be at least 6 characters long.' };
+    }
+
+    const duplicate = teams.some((t) => t.id !== teamId && t.username?.toLowerCase() === cleanUser);
+    if (duplicate) {
+      return { success: false, error: 'The requested username is already assigned to another team.' };
+    }
+
+    if (SupabaseService.isConfigured() && adminToken) {
+      try {
+        const res = await SupabaseService.adminSetTeamCredentials(teamId, cleanUser, cleanPass, adminToken);
+        if (!res.success && res.error && !res.error.includes('not yet deployed')) {
+          return { success: false, error: res.error || 'Failed to update credentials on Supabase.' };
+        }
+      } catch (err) {
+        console.warn('Supabase set credentials notice:', err);
+      }
+    }
+
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.id === teamId
+          ? { ...t, username: cleanUser, credentialsConfigured: true, credentialsRandomized: true }
+          : t
+      )
+    );
+
+    try {
+      const creds = JSON.parse(localStorage.getItem('mm2_custom_team_credentials') || '{}');
+      creds[teamId] = { username: cleanUser, password: cleanPass };
+      localStorage.setItem('mm2_custom_team_credentials', JSON.stringify(creds));
+    } catch (e) {
+      console.warn('Storage notice:', e);
+    }
+
+    return { success: true };
+  }, [teams, adminToken]);
+
+  const resetTeamPassword = useCallback(async (teamId: string, newPassword: string) => {
+    const cleanPass = newPassword.trim();
+    if (!cleanPass || cleanPass.length < 6) {
+      return { success: false, error: 'New password must be at least 6 characters long.' };
+    }
+
+    if (SupabaseService.isConfigured() && adminToken) {
+      try {
+        const res = await SupabaseService.adminResetTeamPassword(teamId, cleanPass, adminToken);
+        if (!res.success && res.error && !res.error.includes('not yet deployed')) {
+          return { success: false, error: res.error || 'Failed to reset password on Supabase.' };
+        }
+      } catch (err) {
+        console.warn('Supabase reset password notice:', err);
+      }
+    }
+
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.id === teamId
+          ? { ...t, credentialsConfigured: true, credentialsRandomized: true }
+          : t
+      )
+    );
+
+    try {
+      const creds = JSON.parse(localStorage.getItem('mm2_custom_team_credentials') || '{}');
+      if (creds[teamId]) {
+        creds[teamId].password = cleanPass;
+        localStorage.setItem('mm2_custom_team_credentials', JSON.stringify(creds));
+      }
+    } catch (e) {
+      console.warn('Storage notice:', e);
+    }
+
+    return { success: true };
+  }, [adminToken]);
+
+  const batchGenerateTeamCredentials = useCallback(async () => {
+    let credsList: { team_id: string; team_code: string; team_name: string; username: string; password: string }[] = [];
+
+    if (SupabaseService.isConfigured() && adminToken) {
+      try {
+        const res = await SupabaseService.adminBatchGenerateTeamCredentials(adminToken);
+        if (res.success && res.data?.credentials) {
+          credsList = res.data.credentials;
+        }
+      } catch (err) {
+        console.warn('Supabase batch generate notice:', err);
+      }
+    }
+
+    if (credsList.length === 0) {
+      credsList = teams.map((t) => {
+        const u = t.username || t.teamCode.toLowerCase();
+        const p = 'MM2-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+        return {
+          team_id: t.id,
+          team_code: t.teamCode,
+          team_name: t.teamName,
+          username: u,
+          password: p,
+        };
+      });
+    }
+
+    const credsMap: Record<string, { username: string; password: string }> = {};
+    credsList.forEach((c) => {
+      credsMap[c.team_id] = { username: c.username, password: c.password };
+    });
+    localStorage.setItem('mm2_custom_team_credentials', JSON.stringify(credsMap));
+
+    setTeams((prev) =>
+      prev.map((t) => {
+        const gen = credsMap[t.id];
+        return gen
+          ? { ...t, username: gen.username, credentialsConfigured: true, credentialsRandomized: true }
+          : t;
+      })
+    );
+
+    return { success: true, count: credsList.length, credentials: credsList };
+  }, [teams, adminToken]);
+
   const updateLocation = useCallback((id: number, updates: Partial<LocationCheckpoint>) => {
     setLocations((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)));
     if (SupabaseService.isConfigured() && adminToken) {
       const targetLoc = locations.find((l) => l.id === id);
       const name = updates.name ?? targetLoc?.name ?? '';
       const description = updates.description ?? targetLoc?.description ?? '';
-      const capacity = updates.capacity ?? targetLoc?.capacity ?? 4;
+      const capacity = updates.capacity ?? targetLoc?.capacity ?? 3;
       SupabaseService.adminUpdateLocation(id, name, description, capacity, adminToken).catch((err) => {
         console.warn('[Supabase] adminUpdateLocation error:', err);
       });
@@ -842,18 +978,58 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // PLAYER ACTIONS
   // ==========================================
 
-  const loginTeam = useCallback(async (teamCode: string, accessCode: string) => {
-    const cleanCode = teamCode.trim().toUpperCase();
-    const cleanAccess = accessCode.trim();
+  const loginTeam = useCallback(async (usernameOrCode: string, passwordOrAccess: string) => {
+    const cleanUser = usernameOrCode.trim();
+    const cleanLowerUser = cleanUser.toLowerCase();
+    const cleanUpperUser = cleanUser.toUpperCase();
+    const cleanPass = passwordOrAccess.trim();
 
-    // 1. Check client-issued passcodes fallback
+    if (!cleanUser || !cleanPass) {
+      return { success: false, error: 'Username and password are required.' };
+    }
+
+    // 1. Check custom team credentials fallback cache
+    const customCredsRaw = localStorage.getItem('mm2_custom_team_credentials');
+    if (customCredsRaw) {
+      try {
+        const customCreds = JSON.parse(customCredsRaw) as Record<string, { username: string; password: string }>;
+        const matchedEntry = Object.entries(customCreds).find(([teamId, data]) => {
+          const t = teams.find((team) => team.id === teamId);
+          return (
+            (data.username?.toLowerCase() === cleanLowerUser || t?.teamCode.toUpperCase() === cleanUpperUser) &&
+            data.password === cleanPass
+          );
+        });
+
+        if (matchedEntry) {
+          const [teamId] = matchedEntry;
+          const targetTeam = teams.find((t) => t.id === teamId);
+          if (targetTeam) {
+            const sessionToken = `session_${targetTeam.id}_${Date.now()}`;
+            sessionStorage.setItem('mm2_session_token', sessionToken);
+            sessionStorage.setItem('mm2_team_id', targetTeam.id);
+            setActiveTeamId(targetTeam.id);
+
+            if (SupabaseService.isConfigured()) {
+              SupabaseService.loginTeam(cleanUser, cleanPass).catch(() => {});
+            }
+
+            return { success: true, team: targetTeam };
+          }
+        }
+      } catch (e) {
+        console.warn('Error reading custom creds cache', e);
+      }
+    }
+
+    // 2. Check client-issued passcodes fallback
     const localPasscodesRaw = localStorage.getItem('mm2_team_passcodes');
     if (localPasscodesRaw) {
       try {
         const localPasscodes = JSON.parse(localPasscodesRaw) as Record<string, string>;
-        const expectedPasscode = localPasscodes[cleanCode];
-        if (expectedPasscode && expectedPasscode === cleanAccess) {
-          const targetTeam = teams.find((t) => t.teamCode.toUpperCase() === cleanCode);
+        const expectedPasscode = localPasscodes[cleanUpperUser];
+        if (expectedPasscode && expectedPasscode === cleanPass) {
+          const targetTeam = teams.find((t) => t.teamCode.toUpperCase() === cleanUpperUser);
           if (targetTeam) {
             const sessionToken = `session_${targetTeam.id}_${Date.now()}`;
             sessionStorage.setItem('mm2_session_token', sessionToken);
@@ -862,7 +1038,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
             // Attempt background sync if Supabase is alive
             if (SupabaseService.isConfigured()) {
-              SupabaseService.loginTeam(cleanCode, cleanAccess).catch(() => {});
+              SupabaseService.loginTeam(cleanUser, cleanPass).catch(() => {});
             }
 
             return { success: true, team: targetTeam };
@@ -874,7 +1050,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (SupabaseService.isConfigured()) {
-      const rpcRes = await SupabaseService.loginTeam(cleanCode, cleanAccess);
+      const rpcRes = await SupabaseService.loginTeam(cleanUser, cleanPass);
       if (rpcRes.error || !rpcRes.data || !rpcRes.data.success) {
         return {
           success: false,
@@ -967,9 +1143,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Isolated local development testing simulation (DEV ONLY)
-    const team = teams.find((t) => t.teamCode.toUpperCase() === cleanCode);
+    const team = teams.find((t) => t.teamCode.toUpperCase() === cleanUpperUser || t.username?.toLowerCase() === cleanLowerUser);
     if (!team) {
-      return { success: false, error: `Invalid Team ID "${cleanCode}".` };
+      return { success: false, error: `Invalid Team credentials for "${cleanUser}".` };
     }
 
     // Set active team session
@@ -1139,7 +1315,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
 
       const now = new Date().toISOString();
-      const isChampionshipComplete = Boolean(rpcRes.data.is_game_finished || roundNumber >= 10);
+      const isChampionshipComplete = Boolean(rpcRes.data.is_game_finished || roundNumber >= 9);
 
       setProgress((prev) => {
         const idx = prev.findIndex((p) => p.teamId === teamId && p.roundNumber === roundNumber);
@@ -1223,7 +1399,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
 
     const now = new Date().toISOString();
-    const isChampionshipComplete = roundNumber >= 10;
+    const isChampionshipComplete = roundNumber >= 9;
 
     // Mark current round QR as verified
     setProgress((prev) => {
@@ -1433,6 +1609,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     eliminateTeam,
     reinstateTeam,
     issueTeamCredentials,
+    setTeamCredentials,
+    resetTeamPassword,
+    batchGenerateTeamCredentials,
     updateLocation,
     regenerateLocationToken,
     saveRiddle,
