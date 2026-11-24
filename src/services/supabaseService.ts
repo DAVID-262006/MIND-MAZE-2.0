@@ -116,13 +116,14 @@ export class SupabaseService {
 
   /**
    * Team authentication: login_team(p_username, p_password, p_device_fingerprint)
-   * Supports both custom team usernames and team codes.
+   * Supports both custom team usernames, team codes, and team names.
    */
   public static async loginTeam(usernameOrCode: string, passwordOrPasscode: string, deviceFingerprint?: string) {
     const cleanUser = usernameOrCode.trim();
     const cleanPass = passwordOrPasscode.trim();
 
-    return this.callRpc<{
+    // 1. Primary call matching Migration 008 signature
+    const rpcRes = await this.callRpc<{
       success: boolean;
       team_id: string;
       team_code: string;
@@ -137,10 +138,39 @@ export class SupabaseService {
     }>('login_team', {
       p_username: cleanUser,
       p_password: cleanPass,
-      p_team_code: cleanUser.toUpperCase(),
-      p_passcode: cleanPass,
       p_device_fingerprint: deviceFingerprint || null,
     });
+
+    if (rpcRes.success) {
+      return rpcRes;
+    }
+
+    // 2. Legacy fallback if Migration 008 is not yet deployed on Supabase (older migrations 002-006)
+    if (rpcRes.isFallback || rpcRes.error?.includes('not yet deployed') || rpcRes.error?.includes('schema cache')) {
+      const legacyRes = await this.callRpc<{
+        success: boolean;
+        team_id: string;
+        team_code: string;
+        team_name: string;
+        username?: string;
+        session_token: string;
+        current_round: number;
+        status: string;
+        total_score: number;
+        error?: string;
+        message?: string;
+      }>('login_team', {
+        p_team_code: cleanUser.toUpperCase(),
+        p_passcode: cleanPass,
+        p_device_fingerprint: deviceFingerprint || null,
+      });
+
+      if (legacyRes.success) {
+        return legacyRes;
+      }
+    }
+
+    return rpcRes;
   }
 
   /**

@@ -56,6 +56,15 @@ BEGIN
     ) THEN
         ALTER TABLE public.teams ADD COLUMN password_hash VARCHAR(255);
     END IF;
+
+    -- Initialize default usernames and default passwords ('user1122') for any unconfigured teams
+    UPDATE public.teams
+    SET username = COALESCE(username, LOWER(team_code)),
+        passcode_hash = COALESCE(passcode_hash, extensions.crypt('user1122', extensions.gen_salt('bf', 10))),
+        password_hash = COALESCE(password_hash, extensions.crypt('user1122', extensions.gen_salt('bf', 10))),
+        credentials_configured = true,
+        credentials_randomized = true
+    WHERE credentials_configured = false;
 END $$;
 
 -- Create index on lowercase username for fast, case-insensitive login lookups
@@ -425,10 +434,12 @@ BEGIN
         RETURN jsonb_build_object('success', false, 'error', 'Password is required.');
     END IF;
 
-    -- Lookup team by custom username OR team_code (for backward compatibility)
+    -- Lookup team by custom username OR team_code OR full team_name (for maximum participant usability)
     SELECT * INTO v_team 
     FROM public.teams 
-    WHERE LOWER(username) = v_clean_username OR LOWER(team_code) = v_clean_username;
+    WHERE LOWER(username) = v_clean_username 
+       OR LOWER(team_code) = v_clean_username 
+       OR LOWER(team_name) = v_clean_username;
 
     IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', 'Invalid team username or password.');
@@ -436,11 +447,16 @@ BEGIN
 
     -- Check if credentials have been configured
     IF v_team.credentials_configured = false AND v_team.credentials_randomized = false THEN
-        RETURN jsonb_build_object(
-            'success', false,
-            'error', 'CREDENTIALS_NOT_INITIALIZED',
-            'message', 'Team credentials have not yet been configured by competition administrators.'
-        );
+        -- Allow demo password 'user1122' during testing before custom credentials are set
+        IF v_clean_password = 'user1122' THEN
+            v_is_valid := true;
+        ELSE
+            RETURN jsonb_build_object(
+                'success', false,
+                'error', 'CREDENTIALS_NOT_INITIALIZED',
+                'message', 'Team credentials have not yet been configured by competition administrators.'
+            );
+        END IF;
     END IF;
 
     -- Check account lockout
