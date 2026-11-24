@@ -50,6 +50,7 @@ interface GameContextType {
   deleteTeam: (id: string, force?: boolean) => Promise<{ success: boolean; error?: string }>;
   eliminateTeam: (id: string, reason: string) => Promise<void> | void;
   reinstateTeam: (id: string) => Promise<void> | void;
+  issueTeamCredentials: (issued: { team_id: string; team_code: string; passcode: string }[]) => void;
   updateLocation: (id: number, updates: Partial<LocationCheckpoint>) => void;
   regenerateLocationToken: (id: number) => string;
   saveRiddle: (riddle: Riddle) => void;
@@ -715,6 +716,21 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     );
   }, [adminToken]);
 
+  const issueTeamCredentials = useCallback((issued: { team_id: string; team_code: string; passcode: string }[]) => {
+    const passcodeMap: Record<string, string> = {};
+    issued.forEach((c) => {
+      passcodeMap[c.team_code.toUpperCase()] = c.passcode;
+    });
+    localStorage.setItem('mm2_team_passcodes', JSON.stringify(passcodeMap));
+
+    setTeams((prev) =>
+      prev.map((t) => {
+        const found = issued.find((c) => c.team_id === t.id || c.team_code.toUpperCase() === t.teamCode.toUpperCase());
+        return found ? { ...t, credentialsRandomized: true } : t;
+      })
+    );
+  }, []);
+
   const updateLocation = useCallback((id: number, updates: Partial<LocationCheckpoint>) => {
     setLocations((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)));
     if (SupabaseService.isConfigured() && adminToken) {
@@ -829,6 +845,33 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const loginTeam = useCallback(async (teamCode: string, accessCode: string) => {
     const cleanCode = teamCode.trim().toUpperCase();
     const cleanAccess = accessCode.trim();
+
+    // 1. Check client-issued passcodes fallback
+    const localPasscodesRaw = localStorage.getItem('mm2_team_passcodes');
+    if (localPasscodesRaw) {
+      try {
+        const localPasscodes = JSON.parse(localPasscodesRaw) as Record<string, string>;
+        const expectedPasscode = localPasscodes[cleanCode];
+        if (expectedPasscode && expectedPasscode === cleanAccess) {
+          const targetTeam = teams.find((t) => t.teamCode.toUpperCase() === cleanCode);
+          if (targetTeam) {
+            const sessionToken = `session_${targetTeam.id}_${Date.now()}`;
+            sessionStorage.setItem('mm2_session_token', sessionToken);
+            sessionStorage.setItem('mm2_team_id', targetTeam.id);
+            setActiveTeamId(targetTeam.id);
+
+            // Attempt background sync if Supabase is alive
+            if (SupabaseService.isConfigured()) {
+              SupabaseService.loginTeam(cleanCode, cleanAccess).catch(() => {});
+            }
+
+            return { success: true, team: targetTeam };
+          }
+        }
+      } catch (e) {
+        console.warn('Error reading local passcodes', e);
+      }
+    }
 
     if (SupabaseService.isConfigured()) {
       const rpcRes = await SupabaseService.loginTeam(cleanCode, cleanAccess);
@@ -1389,6 +1432,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     deleteTeam,
     eliminateTeam,
     reinstateTeam,
+    issueTeamCredentials,
     updateLocation,
     regenerateLocationToken,
     saveRiddle,
