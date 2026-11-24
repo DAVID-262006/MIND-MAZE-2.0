@@ -26,12 +26,12 @@ export function exportLeaderboardCSV(leaderboard: LeaderboardEntry[]): void {
 }
 
 export function exportRoutesCSV(routes: RouteAssignment[], teams: Team[]): void {
-  let csv = 'TeamCode,TeamName,Round1,Round2,Round3,Round4,Round5,Round6,Round7,Round8,Round9,Round10\n';
+  let csv = 'TeamCode,TeamName,Round1,Round2,Round3,Round4,Round5,Round6,Round7,Round8,Round9\n';
 
   teams.forEach((t) => {
     const teamRoutes = routes.filter((r) => r.teamId === t.id);
     const locCols: string[] = [];
-    for (let round = 1; round <= 10; round++) {
+    for (let round = 1; round <= 9; round++) {
       const match = teamRoutes.find((r) => r.roundNumber === round);
       locCols.push(match ? `Loc ${match.locationId}` : '--');
     }

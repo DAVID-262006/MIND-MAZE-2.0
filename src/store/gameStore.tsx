@@ -261,7 +261,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         })));
         // ARCHITECTURE MANDATE: Frontend owns question content. Do not overwrite from Supabase.
         setRiddles(QuestionRegistry.getAllQuestions().map(mapQuestionToRiddle));
-        setRoutes(data.routes ?? []);
+        if (data.routes && data.routes.length === 180) {
+          setRoutes(data.routes);
+        } else {
+          setRoutes((prev) => (prev.length === 180 ? prev : StorageService.loadRoutes()));
+        }
         setProgress(data.progress ?? []);
         setIncidents(data.incidents ?? []);
       }).catch((err) => console.warn('[Supabase] Admin data hydration failed:', err));
@@ -1145,6 +1149,24 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setConfig((prev) => ({ ...prev, ...updates }));
   }, []);
 
+  // Ensure routes matrix is populated (20 teams x 9 stations = 180 assignments)
+  useEffect(() => {
+    if (routes.length !== 180 && teams.length === 20 && locations.length >= 9) {
+      try {
+        const teamIds = teams.map((t) => t.id);
+        const activeLocs = locations.filter((l) => l.active !== false).slice(0, 9);
+        const locIds = activeLocs.map((l) => l.id);
+        if (teamIds.length === 20 && locIds.length === 9) {
+          const generated = generateBalancedRoutes(teamIds, locIds, 9);
+          setRoutes(generated.matrix);
+          StorageService.saveRoutes(generated.matrix);
+        }
+      } catch (err) {
+        console.warn('Auto route generation failed:', err);
+      }
+    }
+  }, [routes.length, teams, locations]);
+
   const regenerateRoutes = useCallback((): { success: boolean; message: string } => {
     if (config.routesLocked) {
       return { success: false, message: 'Routes are locked for the active event.' };
@@ -1152,14 +1174,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     if (teams.length !== 20) {
       return { success: false, message: `Route generator requires exactly 20 teams (currently ${teams.length}).` };
     }
-    if (locations.length !== 10) {
-      return { success: false, message: `Route generator requires exactly 10 locations (currently ${locations.length}).` };
+    const activeLocations = locations.filter((l) => l.active !== false).slice(0, 9);
+    if (activeLocations.length !== 9) {
+      return { success: false, message: `Route generator requires exactly 9 locations (currently ${activeLocations.length}).` };
     }
 
     try {
       const teamIds = teams.map((t) => t.id);
-      const locIds = locations.map((l) => l.id);
-      const res = generateBalancedRoutes(teamIds, locIds, 10, {
+      const locIds = activeLocations.map((l) => l.id);
+      const res = generateBalancedRoutes(teamIds, locIds, 9, {
         randomizeTeams: true,
         randomizeLocations: true,
       });
@@ -1169,9 +1192,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
 
       setRoutes(res.matrix);
+      StorageService.saveRoutes(res.matrix);
 
       if (SupabaseService.isConfigured() && adminToken) {
-        SupabaseService.generateTeamRoutes(locations.length, adminToken).then((rpcRes) => {
+        SupabaseService.generateTeamRoutes(activeLocations.length, adminToken).then((rpcRes) => {
           if (!rpcRes.success) {
             console.warn('[Supabase] generateTeamRoutes error:', rpcRes.error);
           }
@@ -1180,11 +1204,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      return { success: true, message: 'Generated and verified 100% collision-free Latin Hypercube routes.' };
+      return { success: true, message: 'Generated and verified 100% collision-free Latin Hypercube routes across 9 stations.' };
     } catch (err) {
       return { success: false, message: (err as Error).message };
     }
-  }, [config.routesLocked, teams, locations]);
+  }, [config.routesLocked, teams, locations, adminToken]);
 
   const lockRoutes = useCallback(() => {
     setConfig((prev) => ({ ...prev, routesLocked: true }));

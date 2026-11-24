@@ -288,6 +288,33 @@ for (let round = 1; round <= 9; round++) {
   check(prog.qrScanned, `Round ${round}: Station ${stationLocId} QR scanned successfully`);
 }
 
+// =============================================================================
+// REQUIREMENT: ROUTE MATRIX 9-LOCATION & 9-ROUND VERIFICATION
+// =============================================================================
+console.log('\n--- 7. Testing 9-Location Route Matrix Population ---');
+
+import { StorageService } from '../services/storageService';
+import { INITIAL_TEAMS } from '../data/seedData';
+
+const loadedLocs = StorageService.loadLocations();
+check(loadedLocs.length === 9, 'StorageService.loadLocations returns exactly 9 physical stations');
+
+const loadedRoutes = StorageService.loadRoutes();
+check(loadedRoutes.length === 180, 'StorageService.loadRoutes returns exactly 180 assignments (20 teams * 9 rounds)');
+
+// Verify each of the 20 teams has 9 non-null, valid stations
+INITIAL_TEAMS.forEach((team) => {
+  const teamRoutes = loadedRoutes.filter((r) => r.teamId === team.id);
+  check(teamRoutes.length === 9, `Team ${team.teamCode} has exactly 9 round assignments`);
+
+  const visitedLocs = new Set(teamRoutes.map((r) => r.locationId));
+  check(visitedLocs.size === 9, `Team ${team.teamCode} visits all 9 distinct locations without duplicate`);
+
+  // Verify all location numbers are between 1 and 9
+  const allInRange = teamRoutes.every((r) => r.locationId >= 1 && r.locationId <= 9);
+  check(allInRange, `Team ${team.teamCode} has all station IDs within 1-9`);
+});
+
 console.log('\n================================================================');
 console.log(`TOTAL CHECKS: ${total}`);
 console.log(`PASSED: ${passed}`);

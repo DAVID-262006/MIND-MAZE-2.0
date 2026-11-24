@@ -158,7 +158,7 @@ export function HomePage({ onNavigate }: HomePageProps) {
           </div>
           <div className="p-3 bg-arena-card/60 border border-arena-border/40 rounded-xl">
             <QrCode className="w-5 h-5 text-electric-cyan mx-auto mb-1.5" />
-            <span className="text-xs font-bold text-white block">10 Physical Stations</span>
+            <span className="text-xs font-bold text-white block">9 Physical Stations</span>
             <span className="text-[10px] text-arena-muted block">Printable Placards</span>
           </div>
           <div className="p-3 bg-arena-card/60 border border-arena-border/40 rounded-xl">

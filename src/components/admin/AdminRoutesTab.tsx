@@ -18,6 +18,14 @@ export function AdminRoutesTab() {
   const { success, warning, error: toastError } = useToast();
 
   const isLocked = config.routesLocked || config.status !== 'ready';
+  const totalRounds = 9;
+
+  // Auto-generate routes if none exist yet
+  React.useEffect(() => {
+    if (routes.length !== 180 && teams.length === 20 && !isLocked) {
+      regenerateRoutes();
+    }
+  }, [routes.length, teams.length, isLocked, regenerateRoutes]);
 
   const handleRegenerate = () => {
     if (isLocked) {
@@ -52,7 +60,7 @@ export function AdminRoutesTab() {
             <span>Orthogonal Shifted Latin Hypercube Route Allocation</span>
           </h3>
           <p className="text-xs text-arena-muted mt-0.5">
-            Guarantees: (1) All 20 teams visit all 10 locations once. (2) Exactly 2 teams per location per round.
+            Guarantees: (1) All 20 teams visit all 9 locations once. (2) Balanced teams per location per round (max 3 &le; capacity 4).
           </p>
         </div>
 
@@ -92,7 +100,7 @@ export function AdminRoutesTab() {
       <div className="p-3 bg-emerald-500/10 border border-electric-emerald/30 rounded-xl flex items-center justify-between text-xs text-electric-emerald font-mono">
         <div className="flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>Equipartition Verified: Exactly 2 teams per location across all 10 rounds &bull; 0 Collisions</span>
+          <span>Equipartition Verified: Balanced teams per location across all 9 rounds &bull; 0 Collisions</span>
         </div>
         <span className="text-[11px] font-bold uppercase">Status: {isLocked ? 'LOCKED' : 'EDITABLE'}</span>
       </div>
@@ -104,7 +112,7 @@ export function AdminRoutesTab() {
             <thead>
               <tr className="border-b border-arena-border bg-arena-panel/50 text-[11px] text-arena-muted uppercase tracking-wider">
                 <th className="py-3 px-3">Team</th>
-                {Array.from({ length: 10 }, (_, i) => i + 1).map((r) => (
+                {Array.from({ length: totalRounds }, (_, i) => i + 1).map((r) => (
                   <th key={r} className="py-3 px-2.5 text-center">
                     R{r}
                   </th>
@@ -120,17 +128,18 @@ export function AdminRoutesTab() {
                       <span className="font-bold text-electric-cyan mr-1.5">{team.teamCode}</span>
                       <span className="text-arena-muted text-[11px] font-sans">({team.teamName})</span>
                     </td>
-                    {Array.from({ length: 10 }, (_, i) => i + 1).map((round) => {
+                    {Array.from({ length: totalRounds }, (_, i) => i + 1).map((round) => {
                       const match = teamRoutes.find((r) => r.roundNumber === round);
                       const loc = locations.find((l) => l.id === match?.locationId);
+                      const locNum = loc?.locationNumber || match?.locationId;
 
                       return (
                         <td key={round} className="py-2.5 px-2.5 text-center">
                           <span
                             className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-arena-panel border border-arena-border text-white hover:border-electric-cyan cursor-default"
-                            title={`Round ${round}: Station #${loc?.locationNumber} - ${loc?.name}`}
+                            title={match ? `Round ${round}: Station #${locNum} - ${loc?.name || `Station #${locNum}`}` : `Round ${round}: Unassigned`}
                           >
-                            Loc {match ? match.locationId : '--'}
+                            Loc {match ? locNum : '--'}
                           </span>
                         </td>
                       );

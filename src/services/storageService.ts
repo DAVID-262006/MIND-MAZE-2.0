@@ -155,7 +155,7 @@ export class StorageService {
               qrToken: String(l.qrToken || '1000000000'),
             }));
 
-          if (sanitized.length === 10) {
+          if (sanitized.length === 9) {
             return sanitized;
           }
         }
@@ -207,7 +207,7 @@ export class StorageService {
               starterCode: r.starterCode || undefined,
             }));
 
-          if (sanitized.length >= 10) {
+          if (sanitized.length >= 9) {
             return sanitized;
           }
         }
@@ -227,14 +227,14 @@ export class StorageService {
   }
 
   /**
-   * Safely load and validate routes array.
+   * Safely load and validate routes array (20 teams x 9 locations = 180 assignments).
    */
   public static loadRoutes(): RouteAssignment[] {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.ROUTES);
       if (raw && raw !== 'undefined' && raw !== 'null') {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length === 200) {
+        if (Array.isArray(parsed) && parsed.length === 180) {
           const valid = parsed.every(
             (r) => r && typeof r === 'object' && r.teamId && typeof r.roundNumber === 'number' && typeof r.locationId === 'number'
           );
@@ -247,11 +247,12 @@ export class StorageService {
       console.warn('Corrupted routes in storage, regenerating', e);
     }
 
-    // Generate default routes if none exist or corrupted
+    // Generate default routes if none exist or corrupted (20 teams x 9 locations = 180 assignments)
     try {
       const teamIds = INITIAL_TEAMS.map((t) => t.id);
       const locIds = INITIAL_LOCATIONS.map((l) => l.id);
-      const generated = generateBalancedRoutes(teamIds, locIds, 10);
+      const generated = generateBalancedRoutes(teamIds, locIds, 9);
+      this.saveRoutes(generated.matrix);
       return generated.matrix;
     } catch (err) {
       console.error('Failed to generate initial routes:', err);
