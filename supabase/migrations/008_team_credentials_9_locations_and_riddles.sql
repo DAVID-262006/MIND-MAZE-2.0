@@ -409,6 +409,101 @@ END;
 $$;
 
 -- -----------------------------------------------------------------------------
+-- 6b. RPC: admin_generate_team_credentials (COMPATIBILITY FOR ADMIN UI)
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_generate_team_credentials(VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_generate_team_credentials(VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_generate_team_credentials();
+DROP FUNCTION IF EXISTS public.admin_generate_team_credentials;
+CREATE OR REPLACE FUNCTION public.admin_generate_team_credentials(
+    p_admin_token VARCHAR,
+    p_confirmation_code VARCHAR DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+    v_team RECORD;
+    v_username VARCHAR;
+    v_plain_password VARCHAR;
+    v_password_hash VARCHAR;
+    v_creds_list JSONB := '[]'::jsonb;
+    v_counter INT := 0;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'UNAUTHORIZED',
+            'message', 'Superadmin or Admin role required for credential generation.'
+        );
+    END IF;
+
+    IF p_confirmation_code IS NOT NULL AND p_confirmation_code <> 'CONFIRM' AND p_confirmation_code <> 'CONFIRM_GENERATE_CREDENTIALS' THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'CONFIRMATION_REQUIRED',
+            'message', 'Confirmation required. Supply confirmation code "CONFIRM" or "CONFIRM_GENERATE_CREDENTIALS".'
+        );
+    END IF;
+
+    FOR v_team IN SELECT id, team_code, team_name, username FROM public.teams ORDER BY team_code LOOP
+        IF v_team.username IS NOT NULL AND LENGTH(v_team.username) > 0 THEN
+            v_username := v_team.username;
+        ELSE
+            v_username := LOWER(v_team.team_code);
+        END IF;
+
+        v_plain_password := 'MM2-' || UPPER(SUBSTRING(encode(extensions.gen_random_bytes(4), 'hex') FROM 1 FOR 6));
+        v_password_hash := extensions.crypt(v_plain_password, extensions.gen_salt('bf', 10));
+
+        UPDATE public.teams
+        SET username = v_username,
+            passcode_hash = v_password_hash,
+            password_hash = v_password_hash,
+            credentials_configured = true,
+            credentials_randomized = true,
+            active_session_token_hash = NULL,
+            failed_login_attempts = 0,
+            locked_until = NULL,
+            updated_at = NOW()
+        WHERE id = v_team.id;
+
+        v_creds_list := v_creds_list || jsonb_build_object(
+            'team_id', v_team.id,
+            'team_code', v_team.team_code,
+            'team_name', v_team.team_name,
+            'username', v_username,
+            'password', v_plain_password,
+            'passcode', v_plain_password
+        );
+
+        v_counter := v_counter + 1;
+    END LOOP;
+
+    INSERT INTO public.audit_logs (event_type, details)
+    VALUES (
+        'ADMIN_GENERATE_CREDENTIALS',
+        jsonb_build_object(
+            'teams_count', v_counter,
+            'generated_by_role', v_admin_role,
+            'timestamp', NOW()
+        )
+    );
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'count', v_counter,
+        'credentials', v_creds_list,
+        'message', 'Generated credentials for ' || v_counter || ' teams.'
+    );
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
 -- 7. RPC: login_team (AUTHENTICATE VIA USERNAME & PASSWORD)
 -- -----------------------------------------------------------------------------
 DROP FUNCTION IF EXISTS public.login_team(VARCHAR, VARCHAR, VARCHAR);
@@ -531,6 +626,8 @@ $$;
 -- -----------------------------------------------------------------------------
 -- 8. RPC: get_team_state (SECURE LOCATION RIDDLE & PROGRESS FOR CURRENT ROUND)
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.get_team_state(UUID, VARCHAR);
+DROP FUNCTION IF EXISTS public.get_team_state;
 CREATE OR REPLACE FUNCTION public.get_team_state(
     p_team_id UUID,
     p_session_token VARCHAR
@@ -653,6 +750,8 @@ $$;
 -- -----------------------------------------------------------------------------
 -- 9. RPC: verify_checkpoint_qr (9-ROUND JOURNEY COMPLETION)
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.verify_checkpoint_qr(UUID, VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.verify_checkpoint_qr;
 CREATE OR REPLACE FUNCTION public.verify_checkpoint_qr(
     p_team_id UUID,
     p_session_token VARCHAR,
@@ -758,6 +857,9 @@ $$;
 -- -----------------------------------------------------------------------------
 -- 10. RPC: generate_team_routes (9 LOCATIONS, 9 ROUNDS, 20 TEAMS)
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.generate_team_routes(VARCHAR, INT);
+DROP FUNCTION IF EXISTS public.generate_team_routes(VARCHAR);
+DROP FUNCTION IF EXISTS public.generate_team_routes;
 CREATE OR REPLACE FUNCTION public.generate_team_routes(
     p_admin_token VARCHAR,
     p_active_locations INT DEFAULT 9
@@ -825,6 +927,9 @@ $$;
 -- -----------------------------------------------------------------------------
 -- 11. RPC: admin_update_location (UPDATES RIDDLE CLUE DIRECTLY)
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_update_location(VARCHAR, INT, VARCHAR, TEXT, INT, TEXT);
+DROP FUNCTION IF EXISTS public.admin_update_location(VARCHAR, INT, VARCHAR, TEXT, INT);
+DROP FUNCTION IF EXISTS public.admin_update_location;
 CREATE OR REPLACE FUNCTION public.admin_update_location(
     p_admin_token VARCHAR,
     p_location_id INT,
@@ -869,6 +974,8 @@ $$;
 -- -----------------------------------------------------------------------------
 -- 12. RPC: admin_get_dashboard_data (EXPOSES USERNAME & CONFIG STATUS, NO PASSWORDS)
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_get_dashboard_data(VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_get_dashboard_data;
 CREATE OR REPLACE FUNCTION public.admin_get_dashboard_data(
     p_admin_token VARCHAR
 )
@@ -935,6 +1042,8 @@ $$;
 -- -----------------------------------------------------------------------------
 -- 13. RPC: record_puzzle_solved (OPERATIONAL TRACKING ONLY, NO QUESTION SECRETS)
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.record_puzzle_solved(VARCHAR, INT);
+DROP FUNCTION IF EXISTS public.record_puzzle_solved;
 CREATE OR REPLACE FUNCTION public.record_puzzle_solved(
     p_session_token VARCHAR,
     p_round_number INT
@@ -1012,6 +1121,9 @@ GRANT EXECUTE ON FUNCTION public.admin_reset_team_password(VARCHAR, UUID, VARCHA
 
 REVOKE ALL ON FUNCTION public.admin_batch_generate_team_credentials(VARCHAR) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admin_batch_generate_team_credentials(VARCHAR) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_generate_team_credentials(VARCHAR, VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_generate_team_credentials(VARCHAR, VARCHAR) TO anon, authenticated;
 
 REVOKE ALL ON FUNCTION public.login_team(VARCHAR, VARCHAR, VARCHAR) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.login_team(VARCHAR, VARCHAR, VARCHAR) TO anon, authenticated;
