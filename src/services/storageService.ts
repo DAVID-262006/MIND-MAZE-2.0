@@ -55,6 +55,9 @@ export class StorageService {
             totalRounds: typeof parsed.totalRounds === 'number' ? parsed.totalRounds : 10,
             totalPauseDurationMs: typeof parsed.totalPauseDurationMs === 'number' ? parsed.totalPauseDurationMs : 0,
             routesLocked: Boolean(parsed.routesLocked),
+            universalCheatCodeEnabled: parsed.universalCheatCodeEnabled !== undefined
+              ? Boolean(parsed.universalCheatCodeEnabled)
+              : true,
           };
         }
       }

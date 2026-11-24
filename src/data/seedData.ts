@@ -13,6 +13,7 @@ export const INITIAL_EVENT_CONFIG: GameEventConfig = {
   pauseStartedAt: null,
   totalPauseDurationMs: 0,
   routesLocked: false,
+  universalCheatCodeEnabled: true,
 };
 
 export const INITIAL_TEAMS: Team[] = [

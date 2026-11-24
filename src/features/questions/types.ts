@@ -60,6 +60,7 @@ export interface ThreePartResultItem {
 export interface LocalValidationResult {
   isCorrect: boolean;
   feedback: string;
+  isCheatCode?: boolean;
   executionOutput?: string;
   partResults?: {
     partA: ThreePartResultItem;

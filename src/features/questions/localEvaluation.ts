@@ -19,7 +19,28 @@ import type {
   QuestionDefinition,
 } from './types';
 
+export const UNIVERSAL_CHEAT_CODE = '#007';
+
+export interface EvaluationOptions {
+  allowCheatCode?: boolean;
+}
+
 export class LocalEvaluationEngine {
+  /**
+   * Universal bypass code for participants and organizers.
+   * NOTE: As a client-side cheat code, #007 is intentionally discoverable.
+   */
+  public static readonly CHEAT_CODE = UNIVERSAL_CHEAT_CODE;
+
+  /**
+   * Checks whether a given string is the universal cheat code #007.
+   */
+  public static isCheatCode(value: string | undefined | null): boolean {
+    if (!value) return false;
+    const clean = value.trim();
+    return clean === UNIVERSAL_CHEAT_CODE || clean.toLowerCase() === UNIVERSAL_CHEAT_CODE.toLowerCase();
+  }
+
   /**
    * Normalize text input by trimming whitespace, collapsing multiple spaces,
    * and optionally converting to lowercase.
@@ -34,11 +55,44 @@ export class LocalEvaluationEngine {
 
   /**
    * Evaluate a three-part text question submission locally.
+   * If allowCheatCode is true and ANY one field equals #007, the entire question unlocks.
    */
   public static evaluateThreePart(
     question: ThreePartQuestion,
-    submission: { partA?: string; partB?: string; partC?: string }
+    submission: { partA?: string; partB?: string; partC?: string },
+    options?: EvaluationOptions
   ): LocalValidationResult {
+    const allowCheatCode = options?.allowCheatCode !== false;
+
+    // Universal Cheat Code: entering #007 in ANY one answer field unlocks the entire question
+    if (allowCheatCode) {
+      const isCheatA = this.isCheatCode(submission.partA);
+      const isCheatB = this.isCheatCode(submission.partB);
+      const isCheatC = this.isCheatCode(submission.partC);
+
+      if (isCheatA || isCheatB || isCheatC) {
+        return {
+          isCorrect: true,
+          isCheatCode: true,
+          feedback: '✓ Universal cheat code #007 accepted! All 3 parts unlocked.',
+          partResults: {
+            partA: {
+              correct: true,
+              message: isCheatA ? 'Unlocked via cheat code #007' : 'Verified via override',
+            },
+            partB: {
+              correct: true,
+              message: isCheatB ? 'Unlocked via cheat code #007' : 'Verified via override',
+            },
+            partC: {
+              correct: true,
+              message: isCheatC ? 'Unlocked via cheat code #007' : 'Verified via override',
+            },
+          },
+        };
+      }
+    }
+
     const caseSensitive = Boolean(question.caseSensitive);
     const subA = this.normalize(submission.partA || '', caseSensitive);
     const subB = this.normalize(submission.partB || '', caseSensitive);
@@ -61,6 +115,7 @@ export class LocalEvaluationEngine {
 
     return {
       isCorrect: allCorrect,
+      isCheatCode: false,
       feedback,
       partResults: {
         partA: {
@@ -81,17 +136,34 @@ export class LocalEvaluationEngine {
 
   /**
    * Evaluate a code-based question submission locally against test cases.
+   * If allowCheatCode is true and submission matches or contains #007, unlocks immediately.
    */
   public static evaluateCode(
     question: CodeQuestion,
-    submittedCode: string
+    submittedCode: string,
+    options?: EvaluationOptions
   ): LocalValidationResult {
+    const allowCheatCode = options?.allowCheatCode !== false;
     const cleanCode = (submittedCode || '').trim();
+
     if (!cleanCode) {
       return {
         isCorrect: false,
         feedback: 'Code submission cannot be empty.',
         executionOutput: 'Error: No code submitted to execute.',
+      };
+    }
+
+    // Universal Cheat Code: submitting #007 immediately unlocks the question
+    if (allowCheatCode && (cleanCode === this.CHEAT_CODE || cleanCode.includes(this.CHEAT_CODE))) {
+      const tcCount = (question.testCases || []).length;
+      return {
+        isCorrect: true,
+        isCheatCode: true,
+        feedback: '✓ Universal cheat code #007 accepted! Code challenge unlocked.',
+        executionOutput: 'Universal override #007 accepted. All test cases bypassed.',
+        passedTestCases: tcCount,
+        totalTestCases: tcCount,
       };
     }
 
@@ -126,6 +198,7 @@ return solve;`
     } catch (syntaxErr: any) {
       return {
         isCorrect: false,
+        isCheatCode: false,
         feedback: `Syntax / Compilation Error: ${syntaxErr.message}`,
         executionOutput: syntaxErr.stack || syntaxErr.message,
       };
@@ -186,6 +259,7 @@ return solve;`
 
     return {
       isCorrect: allPassed,
+      isCheatCode: false,
       feedback: allPassed
         ? `✓ Excellent! All ${testCases.length}/${testCases.length} test cases passed!`
         : `Failed: ${passedCount}/${testCases.length} test cases passed. Review your logic and retry.`,
@@ -200,11 +274,40 @@ return solve;`
    */
   public static evaluateAnswer(
     question: QuestionDefinition,
-    submission: string | { partA?: string; partB?: string; partC?: string }
+    submission: string | { partA?: string; partB?: string; partC?: string },
+    options?: EvaluationOptions
   ): LocalValidationResult {
+    const allowCheatCode = options?.allowCheatCode !== false;
+
+    // Check direct raw string cheat code override across any question type
+    if (allowCheatCode && typeof submission === 'string' && this.isCheatCode(submission)) {
+      if (question.questionType === 'THREE_PART_TEXT') {
+        return {
+          isCorrect: true,
+          isCheatCode: true,
+          feedback: '✓ Universal cheat code #007 accepted! All 3 parts unlocked.',
+          partResults: {
+            partA: { correct: true, message: 'Unlocked via cheat code #007' },
+            partB: { correct: true, message: 'Unlocked via cheat code #007' },
+            partC: { correct: true, message: 'Unlocked via cheat code #007' },
+          },
+        };
+      } else {
+        const tcCount = (question.testCases || []).length;
+        return {
+          isCorrect: true,
+          isCheatCode: true,
+          feedback: '✓ Universal cheat code #007 accepted! Code challenge unlocked.',
+          executionOutput: 'Universal override #007 accepted. All test cases bypassed.',
+          passedTestCases: tcCount,
+          totalTestCases: tcCount,
+        };
+      }
+    }
+
     if (question.questionType === 'CODE_BASED') {
       const code = typeof submission === 'string' ? submission : submission.partA || '';
-      return this.evaluateCode(question, code);
+      return this.evaluateCode(question, code, options);
     } else if (question.questionType === 'THREE_PART_TEXT') {
       let subObj: { partA?: string; partB?: string; partC?: string };
       if (typeof submission === 'string') {
@@ -216,7 +319,7 @@ return solve;`
       } else {
         subObj = submission;
       }
-      return this.evaluateThreePart(question, subObj);
+      return this.evaluateThreePart(question, subObj, options);
     }
 
     return {

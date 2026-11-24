@@ -212,6 +212,7 @@ export interface GameEventConfig {
   pauseStartedAt?: number | null;
   totalPauseDurationMs: number;
   routesLocked: boolean;
+  universalCheatCodeEnabled?: boolean; // Default true: #007 universal override
 }
 
 export interface FullGameBackup {

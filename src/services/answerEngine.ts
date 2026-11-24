@@ -7,11 +7,13 @@ export interface AnswerValidationOptions {
   matchType?: 'exact' | 'numeric' | 'contains';
   options?: string[]; // Optional 4 MCQ options
   threePartAnswers?: ThreePartAnswers;
+  allowCheatCode?: boolean;
 }
 
 export interface AnswerValidationResult {
   isCorrect: boolean;
   feedback: string;
+  isCheatCode?: boolean;
   partResults?: ThreePartResult;
   executionOutput?: string;
 }

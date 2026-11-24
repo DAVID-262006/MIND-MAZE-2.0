@@ -1229,6 +1229,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       return { isCorrect: false, feedback: 'Submission rejected: Team has been eliminated.' };
     }
 
+    // Prevent duplicate completion records
+    const existingProgress = progress.find((p) => p.teamId === teamId && p.roundNumber === roundNumber);
+    if (existingProgress?.puzzleSolved) {
+      return { isCorrect: true, feedback: 'Checkpoint challenge already solved.' };
+    }
+
     // 1. Retrieve question from frontend QuestionRegistry
     const question = QuestionRegistry.getQuestionForRound(roundNumber);
     if (!question) {
@@ -1236,7 +1242,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
 
     // 2. Perform 100% local client-side evaluation (instantaneous feedback, zero Supabase question leakage)
-    const validation = LocalEvaluationEngine.evaluateAnswer(question, answer);
+    // Check Universal Cheat Code #007 setting (default: enabled)
+    const allowCheatCode = config.universalCheatCodeEnabled !== false;
+    const validation = LocalEvaluationEngine.evaluateAnswer(question, answer, { allowCheatCode });
     const now = new Date().toISOString();
 
     // 3. Update local progress state
@@ -1244,9 +1252,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       const idx = prev.findIndex((p) => p.teamId === teamId && p.roundNumber === roundNumber);
       if (idx >= 0) {
         const current = prev[idx]!;
+        if (current.puzzleSolved) {
+          return prev;
+        }
         const updated: TeamRoundProgress = {
           ...current,
-          attemptsCount: current.attemptsCount + 1,
+          // Do not consume normal answer attempts when the cheat code is used
+          attemptsCount: validation.isCheatCode ? current.attemptsCount : current.attemptsCount + 1,
           puzzleSolved: validation.isCorrect ? true : current.puzzleSolved,
           puzzleSolvedAt: validation.isCorrect ? (current.puzzleSolvedAt || now) : current.puzzleSolvedAt,
         };
@@ -1265,7 +1277,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             puzzleSolved: validation.isCorrect,
             puzzleSolvedAt: validation.isCorrect ? now : null,
             qrScanned: false,
-            attemptsCount: 1,
+            // Do not consume normal answer attempts when the cheat code is used
+            attemptsCount: validation.isCheatCode ? 0 : 1,
             roundStartedAt: new Date(nowEpoch).toISOString(),
             deadlineAt: new Date(nowEpoch + dur * 1000).toISOString(),
             graceDeadlineAt: new Date(nowEpoch + (dur + grace) * 1000).toISOString(),
@@ -1287,11 +1300,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     return {
       isCorrect: validation.isCorrect,
+      isCheatCode: validation.isCheatCode,
       feedback: validation.feedback,
       partResults: validation.partResults,
       executionOutput: validation.executionOutput,
     };
-  }, [teams, config.roundDurationSeconds, config.gracePeriodSeconds]);
+  }, [teams, progress, config.universalCheatCodeEnabled, config.roundDurationSeconds, config.gracePeriodSeconds]);
 
   const verifyQrToken = useCallback(async (teamId: string, roundNumber: number, scannedToken: string) => {
     const targetTeam = teams.find((t) => t.id === teamId);
