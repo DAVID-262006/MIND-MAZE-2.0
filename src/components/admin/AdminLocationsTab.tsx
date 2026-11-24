@@ -20,8 +20,9 @@ import { SupabaseService } from '../../services/supabaseService';
 import type { LocationCheckpoint } from '../../types';
 
 export function AdminLocationsTab() {
-  const { locations, stationOccupancies, updateLocation, regenerateLocationToken } = useGameStore();
+  const { locations, stationOccupancies, adminRole, adminToken, updateLocation, regenerateLocationToken } = useGameStore();
   const { success } = useToast();
+  const isSuperadmin = adminRole === 'superadmin';
 
   const [activeSubView, setActiveSubView] = useState<'tokens' | 'occupancy'>('tokens');
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
@@ -103,7 +104,7 @@ export function AdminLocationsTab() {
     if (target === 'all') {
       if (SupabaseService.isConfigured()) {
         try {
-          const res = await SupabaseService.adminRegenerateEventQrTokens();
+          const res = await SupabaseService.adminRegenerateEventQrTokens('CONFIRM_REGENERATE_TOKENS', adminToken || '');
           if (res.data?.success) {
             success('All Station QR Codes Regenerated', res.data.message);
           }
@@ -188,16 +189,18 @@ export function AdminLocationsTab() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="danger"
-            className="h-9 px-3 text-xs font-mono font-bold"
-            icon={<RefreshCw className="w-3.5 h-3.5" />}
-            onClick={requestRegenerateAll}
-            title="Regenerate all station QR codes"
-          >
-            Refresh All QR
-          </Button>
+          {isSuperadmin && (
+            <Button
+              size="sm"
+              variant="danger"
+              className="h-9 px-3 text-xs font-mono font-bold"
+              icon={<RefreshCw className="w-3.5 h-3.5" />}
+              onClick={requestRegenerateAll}
+              title="Regenerate all station QR codes (Superadmin only)"
+            >
+              Refresh All QR
+            </Button>
+          )}
           <Button
             size="sm"
             variant={activeSubView === 'tokens' ? 'primary' : 'secondary'}

@@ -29,7 +29,9 @@ interface GameContextType {
   progress: TeamRoundProgress[];
   incidents: AntiCheatIncident[];
   activeTeam: Team | null;
+  adminToken: string | null;
   isAdminAuthenticated: boolean;
+  adminRole: 'superadmin' | 'admin' | 'marshal' | null;
   leaderboard: LeaderboardEntry[];
   stationOccupancies: StationOccupancy[];
 
@@ -41,11 +43,11 @@ interface GameContextType {
   resetAllGameData: () => void;
 
   // Admin controls
-  loginAdmin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  loginAdmin: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logoutAdmin: () => Promise<void> | void;
-  createTeam: (name: string, code: string, accessCode?: string) => { success: boolean; error?: string };
-  updateTeam: (id: string, updates: Partial<Team>) => void;
-  deleteTeam: (id: string) => void;
+  createTeam: (name: string, code: string) => Promise<{ success: boolean; error?: string; team?: Team }>;
+  updateTeam: (id: string, updates: Partial<Team>) => Promise<{ success: boolean; error?: string }>;
+  deleteTeam: (id: string, force?: boolean) => Promise<{ success: boolean; error?: string }>;
   eliminateTeam: (id: string, reason: string) => Promise<void> | void;
   reinstateTeam: (id: string) => Promise<void> | void;
   updateLocation: (id: number, updates: Partial<LocationCheckpoint>) => void;
@@ -88,7 +90,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const loadedTeams = StorageService.loadTeams();
     return StorageService.getActiveTeamId(loadedTeams);
   });
+  const [adminToken, setAdminToken] = useState<string | null>(() => {
+    return sessionStorage.getItem('mm2_admin_token');
+  });
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => StorageService.getAdminAuth());
+  const [adminRole, setAdminRole] = useState<'superadmin' | 'admin' | 'marshal' | null>(null);
 
   // Automatically clear stale or non-existent active team ID
   useEffect(() => {
@@ -135,27 +141,30 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     StorageService.setAdminAuth(isAdminAuthenticated);
   }, [isAdminAuthenticated]);
 
-  // Auth state listener & session restoration for Supabase Admin
+  // Session restoration for Custom Admin Authentication
   useEffect(() => {
-    if (!SupabaseService.isConfigured() || !supabase) return;
+    if (!SupabaseService.isConfigured()) return;
 
-    // Restore existing admin session if valid in admin_profiles
-    SupabaseService.checkAdminSession().then(({ isAuthenticated }) => {
-      setIsAdminAuthenticated(isAuthenticated);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        const { isAuthenticated } = await SupabaseService.checkAdminSession();
-        setIsAdminAuthenticated(isAuthenticated);
-      } else {
+    const savedToken = sessionStorage.getItem('mm2_admin_token');
+    if (savedToken) {
+      SupabaseService.checkAdminSession(savedToken).then(({ isAuthenticated, role }) => {
+        if (isAuthenticated) {
+          setIsAdminAuthenticated(true);
+          setAdminToken(savedToken);
+          setAdminRole((role as any) || null);
+        } else {
+          sessionStorage.removeItem('mm2_admin_token');
+          setAdminToken(null);
+          setIsAdminAuthenticated(false);
+          setAdminRole(null);
+        }
+      }).catch(() => {
+        sessionStorage.removeItem('mm2_admin_token');
+        setAdminToken(null);
         setIsAdminAuthenticated(false);
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
+        setAdminRole(null);
+      });
+    }
   }, []);
 
   // Initial hydration from Supabase if configured
@@ -235,24 +244,23 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   // Hydrate admin data when admin authenticated and Supabase configured
   useEffect(() => {
-    if (!isAdminAuthenticated || !SupabaseService.isConfigured()) return;
+    if (!isAdminAuthenticated || !adminToken || !SupabaseService.isConfigured()) return;
 
-    Promise.all([
-      SupabaseService.fetchAdminTeams(),
-      SupabaseService.fetchAdminLocations(),
-      SupabaseService.fetchAdminPuzzles(),
-      SupabaseService.fetchRoutes(),
-      SupabaseService.fetchProgress(),
-      SupabaseService.fetchIncidents(),
-    ]).then(([adminTeams, adminLocs, adminPuzzles, adminRoutes, adminProg, adminInc]) => {
-      if (adminTeams && adminTeams.length > 0) setTeams(adminTeams);
-      if (adminLocs && adminLocs.length > 0) setLocations(adminLocs);
-      if (adminPuzzles && adminPuzzles.length > 0) setRiddles(adminPuzzles);
-      if (adminRoutes && adminRoutes.length > 0) setRoutes(adminRoutes);
-      if (adminProg && adminProg.length > 0) setProgress(adminProg);
-      if (adminInc && adminInc.length > 0) setIncidents(adminInc);
-    }).catch((err) => console.warn('[Supabase] Admin data hydration failed:', err));
-  }, [isAdminAuthenticated]);
+    const hydrateAdmin = () => {
+      SupabaseService.fetchAdminDashboardData(adminToken).then((data) => {
+        if (data.teams && data.teams.length > 0) setTeams(data.teams);
+        if (data.locations && data.locations.length > 0) setLocations(data.locations);
+        if (data.puzzles && data.puzzles.length > 0) setRiddles(data.puzzles);
+        if (data.routes && data.routes.length > 0) setRoutes(data.routes);
+        if (data.progress && data.progress.length > 0) setProgress(data.progress);
+        if (data.incidents && data.incidents.length > 0) setIncidents(data.incidents);
+      }).catch((err) => console.warn('[Supabase] Admin data hydration failed:', err));
+    };
+
+    hydrateAdmin();
+    const interval = setInterval(hydrateAdmin, 5000);
+    return () => clearInterval(interval);
+  }, [isAdminAuthenticated, adminToken]);
 
   // Realtime subscription
   useEffect(() => {
@@ -418,7 +426,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const graceSeconds = config.gracePeriodSeconds || 30;
 
     if (SupabaseService.isConfigured()) {
-      const res = await SupabaseService.startEvent();
+      if (!adminToken) throw new Error('Administrator session token required.');
+      const res = await SupabaseService.startEvent(adminToken);
       if (!res.success) {
         throw new Error(res.error || 'Failed to start event on Supabase backend.');
       }
@@ -460,11 +469,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setTeams((prev) =>
       prev.map((t) => (t.status === 'ready' || t.status === 'registered' ? { ...t, status: 'active' } : t))
     );
-  }, [config.roundDurationSeconds, config.gracePeriodSeconds, teams]);
+  }, [config.roundDurationSeconds, config.gracePeriodSeconds, teams, adminToken]);
 
   const pauseEvent = useCallback(async () => {
     if (SupabaseService.isConfigured()) {
-      const res = await SupabaseService.pauseEvent();
+      if (!adminToken) throw new Error('Administrator session token required.');
+      const res = await SupabaseService.pauseEvent(adminToken);
       if (!res.success) {
         throw new Error(res.error || 'Failed to pause event on Supabase backend.');
       }
@@ -475,14 +485,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       status: 'paused',
       pauseStartedAt: Date.now(),
     }));
-  }, []);
+  }, [adminToken]);
 
   const resumeEvent = useCallback(async () => {
     const pauseStarted = config.pauseStartedAt;
     const pauseDuration = pauseStarted ? Math.max(0, Date.now() - pauseStarted) : 0;
 
     if (SupabaseService.isConfigured()) {
-      const res = await SupabaseService.resumeEvent();
+      if (!adminToken) throw new Error('Administrator session token required.');
+      const res = await SupabaseService.resumeEvent(adminToken);
       if (!res.success) {
         throw new Error(res.error || 'Failed to resume event on Supabase backend.');
       }
@@ -512,11 +523,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         })
       );
     }
-  }, [config.pauseStartedAt]);
+  }, [config.pauseStartedAt, adminToken]);
 
   const endEvent = useCallback(async () => {
     if (SupabaseService.isConfigured()) {
-      const res = await SupabaseService.endEvent();
+      if (!adminToken) throw new Error('Administrator session token required.');
+      const res = await SupabaseService.endEvent(adminToken);
       if (!res.success) {
         throw new Error(res.error || 'Failed to end event on Supabase backend.');
       }
@@ -527,7 +539,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       status: 'finished',
       eventFinishedAt: new Date().toISOString(),
     }));
-  }, []);
+  }, [adminToken]);
 
   const resetAllGameData = useCallback(() => {
     StorageService.clearAllData();
@@ -546,7 +558,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // ADMIN ACTIONS
   // ==========================================
 
-  const loginAdmin = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const loginAdmin = useCallback(async (username: string, password: string): Promise<{ success: boolean; error?: string }> => {
     if (!SupabaseService.isConfigured()) {
       return {
         success: false,
@@ -554,24 +566,33 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    const res = await SupabaseService.adminLogin(email, password);
-    if (res.success) {
+    const res = await SupabaseService.adminLogin(username, password);
+    if (res.success && res.token) {
+      sessionStorage.setItem('mm2_admin_token', res.token);
+      setAdminToken(res.token);
       setIsAdminAuthenticated(true);
+      setAdminRole((res.role as any) || 'admin');
       return { success: true };
     } else {
+      sessionStorage.removeItem('mm2_admin_token');
+      setAdminToken(null);
       setIsAdminAuthenticated(false);
+      setAdminRole(null);
       return { success: false, error: res.error || 'Authentication failed.' };
     }
   }, []);
 
   const logoutAdmin = useCallback(async () => {
-    if (SupabaseService.isConfigured()) {
-      await SupabaseService.adminLogout();
+    if (SupabaseService.isConfigured() && adminToken) {
+      await SupabaseService.adminLogout(adminToken);
     }
+    sessionStorage.removeItem('mm2_admin_token');
+    setAdminToken(null);
     setIsAdminAuthenticated(false);
-  }, []);
+    setAdminRole(null);
+  }, [adminToken]);
 
-  const createTeam = useCallback((name: string, code: string, accessCode?: string) => {
+  const createTeam = useCallback(async (name: string, code: string) => {
     const cleanCode = code.trim().toUpperCase();
     const cleanName = name.trim();
     if (!cleanCode || !cleanName) {
@@ -582,11 +603,36 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       return { success: false, error: `Team code ${cleanCode} is already taken.` };
     }
 
+    if (SupabaseService.isConfigured()) {
+      if (!adminToken) {
+        return { success: false, error: 'Administrator session token required.' };
+      }
+      const res = await SupabaseService.adminCreateTeam(cleanName, cleanCode, adminToken);
+      const teamData = res.data?.team;
+      if (!res.success || !res.data?.success || !teamData) {
+        return { success: false, error: res.data?.error || res.data?.message || res.error || 'Failed to create team in database.' };
+      }
+
+      const createdTeam: Team = {
+        id: teamData.id,
+        teamCode: teamData.team_code,
+        teamName: teamData.team_name,
+        credentialsRandomized: Boolean(teamData.credentials_randomized),
+        status: (teamData.status as Team['status']) || 'ready',
+        currentRound: teamData.current_round || 1,
+        strikes: teamData.total_strikes || 0,
+        createdAt: teamData.created_at,
+      };
+
+      setTeams((prev) => [...prev, createdTeam]);
+      return { success: true, team: createdTeam };
+    }
+
     const newTeam: Team = {
       id: `team-${Date.now().toString().slice(-6)}`,
       teamCode: cleanCode,
       teamName: cleanName,
-      accessCode: accessCode?.trim() || `TeamPass!${cleanCode}`,
+      credentialsRandomized: false,
       status: config.status === 'live' ? 'active' : 'ready',
       currentRound: 1,
       strikes: 0,
@@ -594,25 +640,51 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     };
 
     setTeams((prev) => [...prev, newTeam]);
-    return { success: true };
-  }, [teams, config.status]);
+    return { success: true, team: newTeam };
+  }, [teams, config.status, adminToken]);
 
-  const updateTeam = useCallback((id: string, updates: Partial<Team>) => {
+  const updateTeam = useCallback(async (id: string, updates: Partial<Team>) => {
+    if (SupabaseService.isConfigured() && (updates.teamCode || updates.teamName)) {
+      if (!adminToken) {
+        return { success: false, error: 'Administrator session token required.' };
+      }
+      const targetTeam = teams.find((t) => t.id === id);
+      const code = (updates.teamCode || targetTeam?.teamCode || '').trim().toUpperCase();
+      const name = (updates.teamName || targetTeam?.teamName || '').trim();
+      const res = await SupabaseService.adminUpdateTeam(id, code, name, adminToken);
+      if (!res.success || !res.data?.success) {
+        return { success: false, error: res.data?.error || res.data?.message || res.error };
+      }
+    }
+
     setTeams((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
-  }, []);
+    return { success: true };
+  }, [teams, adminToken]);
 
-  const deleteTeam = useCallback((id: string) => {
+  const deleteTeam = useCallback(async (id: string, force = false) => {
+    if (SupabaseService.isConfigured()) {
+      if (!adminToken) {
+        return { success: false, error: 'Administrator session token required.' };
+      }
+      const res = await SupabaseService.adminDeleteTeam(id, force, adminToken);
+      if (!res.success || !res.data?.success) {
+        return { success: false, error: res.data?.error || res.data?.message || res.error };
+      }
+    }
+
     setTeams((prev) => prev.filter((t) => t.id !== id));
     setProgress((prev) => prev.filter((p) => p.teamId !== id));
     setIncidents((prev) => prev.filter((i) => i.teamId !== id));
     if (activeTeamId === id) {
       setActiveTeamId(null);
     }
-  }, [activeTeamId]);
+    return { success: true };
+  }, [activeTeamId, adminToken]);
 
   const eliminateTeam = useCallback(async (id: string, reason: string) => {
     if (SupabaseService.isConfigured()) {
-      const res = await SupabaseService.eliminateTeam(id, reason);
+      if (!adminToken) throw new Error('Administrator session token required.');
+      const res = await SupabaseService.eliminateTeam(id, reason, adminToken);
       if (!res.success) {
         throw new Error(res.error || 'Failed to eliminate team on Supabase backend.');
       }
@@ -622,11 +694,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         t.id === id ? { ...t, status: 'eliminated', eliminationReason: reason } : t
       )
     );
-  }, []);
+  }, [adminToken]);
 
   const reinstateTeam = useCallback(async (id: string) => {
     if (SupabaseService.isConfigured()) {
-      const res = await SupabaseService.reinstateTeam(id);
+      if (!adminToken) throw new Error('Administrator session token required.');
+      const res = await SupabaseService.reinstateTeam(id, adminToken);
       if (!res.success) {
         throw new Error(res.error || 'Failed to reinstate team on Supabase backend.');
       }
@@ -636,11 +709,20 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         t.id === id ? { ...t, status: 'active', eliminationReason: null, strikes: 0 } : t
       )
     );
-  }, []);
+  }, [adminToken]);
 
   const updateLocation = useCallback((id: number, updates: Partial<LocationCheckpoint>) => {
     setLocations((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)));
-  }, []);
+    if (SupabaseService.isConfigured() && adminToken) {
+      const targetLoc = locations.find((l) => l.id === id);
+      const name = updates.name ?? targetLoc?.name ?? '';
+      const description = updates.description ?? targetLoc?.description ?? '';
+      const capacity = updates.capacity ?? targetLoc?.capacity ?? 4;
+      SupabaseService.adminUpdateLocation(id, name, description, capacity, adminToken).catch((err) => {
+        console.warn('[Supabase] adminUpdateLocation error:', err);
+      });
+    }
+  }, [locations, adminToken]);
 
   const regenerateLocationToken = useCallback((id: number): string => {
     let newToken = '';
@@ -652,8 +734,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       prev.map((l) => (l.id === id ? { ...l, qrToken: newToken } : l))
     );
 
-    if (SupabaseService.isConfigured()) {
-      SupabaseService.adminRegenerateLocationToken(id).then((tokenRes) => {
+    if (SupabaseService.isConfigured() && adminToken) {
+      SupabaseService.adminRegenerateLocationToken(id, adminToken).then((tokenRes) => {
         if (tokenRes.data?.qrToken) {
           setLocations((prev) => prev.map((l) => (l.id === id ? { ...l, qrToken: tokenRes.data!.qrToken } : l)));
         }
@@ -663,7 +745,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
 
     return newToken;
-  }, [locations]);
+  }, [locations, adminToken]);
 
   const saveRiddle = useCallback((riddle: Riddle) => {
     setRiddles((prev) => {
@@ -676,12 +758,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       return [...prev, riddle];
     });
 
-    if (SupabaseService.isConfigured()) {
-      SupabaseService.adminSavePuzzle(riddle).catch((err) => {
+    if (SupabaseService.isConfigured() && adminToken) {
+      SupabaseService.adminSavePuzzle(riddle, adminToken).catch((err) => {
         console.warn('[Supabase] adminSavePuzzle error:', err);
       });
     }
-  }, []);
+  }, [adminToken]);
 
   const deleteRiddle = useCallback((id: string) => {
     setRiddles((prev) => prev.filter((r) => r.id !== id));
@@ -716,12 +798,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
       setRoutes(res.matrix);
 
-      if (SupabaseService.isConfigured()) {
-        SupabaseService.generateTeamRoutes().then((rpcRes) => {
-          if (rpcRes.success) {
-            SupabaseService.fetchRoutes().then((freshRoutes) => {
-              if (freshRoutes && freshRoutes.length > 0) setRoutes(freshRoutes);
-            });
+      if (SupabaseService.isConfigured() && adminToken) {
+        SupabaseService.generateTeamRoutes(locations.length, adminToken).then((rpcRes) => {
+          if (!rpcRes.success) {
+            console.warn('[Supabase] generateTeamRoutes error:', rpcRes.error);
           }
         }).catch((err) => {
           console.warn('[Supabase] generateTeamRoutes error:', err);
@@ -831,14 +911,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       return { success: true, team: mappedTeam };
     }
 
-    // Local offline mode
+    // Strict Production Gate: Fail closed if Supabase is unconfigured
+    if (!import.meta.env.DEV) {
+      return {
+        success: false,
+        error: 'Database unconfigured. Production competition requires active Supabase connectivity.',
+      };
+    }
+
+    // Isolated local development testing simulation (DEV ONLY)
     const team = teams.find((t) => t.teamCode.toUpperCase() === cleanCode);
     if (!team) {
       return { success: false, error: `Invalid Team ID "${cleanCode}".` };
-    }
-
-    if (team.accessCode && team.accessCode !== cleanAccess) {
-      return { success: false, error: 'Invalid access code or password.' };
     }
 
     // Set active team session
@@ -1194,8 +1278,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         SupabaseService.reportTeamViolation(teamId, sessionToken, type, metadata).catch((err) => {
           console.warn('[Supabase] reportTeamViolation error:', err);
         });
-      } else if (isAdminAuthenticated) {
-        SupabaseService.adminRecordViolation(teamId, type, metadata).catch((err) => {
+      } else if (isAdminAuthenticated && adminToken) {
+        SupabaseService.adminRecordViolation(teamId, type, metadata, adminToken).catch((err) => {
           console.warn('[Supabase] adminRecordViolation error:', err);
         });
       }
@@ -1206,7 +1290,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       eliminated,
       message: evaluation.config.message,
     };
-  }, [teams, isAdminAuthenticated]);
+  }, [teams, isAdminAuthenticated, adminToken]);
 
   const handleTimerExpiry = useCallback((teamId: string, roundNumber: number) => {
     const prog = progress.find((p) => p.teamId === teamId && p.roundNumber === roundNumber);
@@ -1282,7 +1366,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     progress,
     incidents,
     activeTeam,
+    adminToken,
     isAdminAuthenticated,
+    adminRole,
     leaderboard,
     stationOccupancies,
 

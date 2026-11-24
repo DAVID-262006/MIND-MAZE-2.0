@@ -29,6 +29,7 @@ export function AdminOverviewTab() {
     locations,
     progress,
     stationOccupancies,
+    adminRole,
     startEvent,
     pauseEvent,
     resumeEvent,
@@ -37,6 +38,9 @@ export function AdminOverviewTab() {
     exportBackup,
     importBackup,
   } = useGameStore();
+
+  const isSuperadminOrAdmin = adminRole === 'superadmin' || adminRole === 'admin';
+  const isSuperadmin = adminRole === 'superadmin';
 
   const { success, warning, error: toastError } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -122,7 +126,7 @@ export function AdminOverviewTab() {
 
         {/* Global Match Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
-          {config.status !== 'live' && config.status !== 'finished' && (
+          {isSuperadminOrAdmin && config.status !== 'live' && config.status !== 'finished' && (
             <Button
               size="sm"
               variant="primary"
@@ -133,7 +137,7 @@ export function AdminOverviewTab() {
             </Button>
           )}
 
-          {config.status === 'live' && (
+          {isSuperadminOrAdmin && config.status === 'live' && (
             <Button
               size="sm"
               variant="secondary"
@@ -144,7 +148,7 @@ export function AdminOverviewTab() {
             </Button>
           )}
 
-          {config.status === 'paused' && (
+          {isSuperadminOrAdmin && config.status === 'paused' && (
             <Button
               size="sm"
               variant="primary"
@@ -163,7 +167,7 @@ export function AdminOverviewTab() {
             </Button>
           )}
 
-          {config.status === 'live' && (
+          {isSuperadminOrAdmin && config.status === 'live' && (
             <Button
               size="sm"
               variant="outline"

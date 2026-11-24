@@ -310,7 +310,8 @@ export class SupabaseService {
   public static async adminRecordViolation(
     teamId: string,
     violationType: ViolationType,
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
+    adminToken?: string | null
   ) {
     return this.callRpc<{
       success: boolean;
@@ -318,6 +319,7 @@ export class SupabaseService {
       eliminated: boolean;
       message: string;
     }>('admin_record_violation', {
+      p_admin_token: adminToken || '',
       p_team_id: teamId,
       p_violation_type: violationType,
       p_metadata: metadata || {},
@@ -332,12 +334,13 @@ export class SupabaseService {
     teamId: string,
     violationType: ViolationType,
     metadata?: Record<string, unknown>,
-    sessionToken?: string
+    sessionToken?: string,
+    adminToken?: string
   ) {
     if (sessionToken) {
       return this.reportTeamViolation(teamId, sessionToken, violationType, metadata);
     }
-    return this.adminRecordViolation(teamId, violationType, metadata);
+    return this.adminRecordViolation(teamId, violationType, metadata, adminToken);
   }
 
   /* -------------------------------------------------------------------------
@@ -345,12 +348,14 @@ export class SupabaseService {
    * ------------------------------------------------------------------------- */
 
   /**
-   * Admin Supabase Auth sign-in with email & password.
-   * Verifies that the authenticated user is listed in admin_profiles with an authorized role.
+   * Admin custom login (username & password, zero Supabase Auth).
    */
-  public static async adminLogin(email: string, password: string): Promise<{
+  public static async adminLogin(username: string, password: string): Promise<{
     success: boolean;
+    token?: string;
     role?: string;
+    username?: string;
+    fullName?: string;
     error?: string;
   }> {
     if (!isSupabaseConfigured || !supabase) {
@@ -361,45 +366,32 @@ export class SupabaseService {
     }
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+      const res = await this.callRpc<{
+        success: boolean;
+        token?: string;
+        role?: string;
+        username?: string;
+        fullName?: string;
+        error?: string;
+        message?: string;
+      }>('admin_custom_login', {
+        p_username: username.trim(),
+        p_password: password,
       });
 
-      if (authError || !authData.user) {
+      if (!res.success || !res.data?.success || !res.data.token) {
         return {
           success: false,
-          error: authError?.message || 'Authentication failed: Invalid credentials.',
-        };
-      }
-
-      // Verify the user exists in admin_profiles
-      const { data: profile, error: profileError } = await supabase
-        .from('admin_profiles')
-        .select('id, email, full_name, role')
-        .eq('id', authData.user.id)
-        .maybeSingle();
-
-      if (profileError || !profile) {
-        // User is not authorized in admin_profiles; immediately terminate session
-        await supabase.auth.signOut();
-        return {
-          success: false,
-          error: 'Access Denied: Your account is not registered in admin_profiles.',
-        };
-      }
-
-      if (!['superadmin', 'admin', 'marshal'].includes(profile.role)) {
-        await supabase.auth.signOut();
-        return {
-          success: false,
-          error: `Access Denied: Role "${profile.role}" is not authorized for admin operations.`,
+          error: res.data?.message || res.data?.error || res.error || 'Authentication failed: Invalid credentials.',
         };
       }
 
       return {
         success: true,
-        role: profile.role,
+        token: res.data.token,
+        role: res.data.role,
+        username: res.data.username,
+        fullName: res.data.fullName,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -411,12 +403,12 @@ export class SupabaseService {
   }
 
   /**
-   * Admin Supabase Auth sign-out.
+   * Admin custom sign-out.
    */
-  public static async adminLogout(): Promise<{ success: boolean; error?: string }> {
-    if (!supabase) return { success: true };
+  public static async adminLogout(adminToken?: string | null): Promise<{ success: boolean; error?: string }> {
+    if (!supabase || !adminToken) return { success: true };
     try {
-      await supabase.auth.signOut();
+      await this.callRpc('admin_custom_logout', { p_admin_token: adminToken });
       return { success: true };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -425,103 +417,316 @@ export class SupabaseService {
   }
 
   /**
-   * Check if current session belongs to a valid administrator in admin_profiles.
+   * Check if provided admin token belongs to an active, valid administrator.
    */
-  public static async checkAdminSession(): Promise<{
+  public static async checkAdminSession(adminToken?: string | null): Promise<{
     isAuthenticated: boolean;
     role?: string;
-    userId?: string;
+    username?: string;
+    fullName?: string;
   }> {
-    if (!isSupabaseConfigured || !supabase) {
+    if (!isSupabaseConfigured || !supabase || !adminToken) {
       return { isAuthenticated: false };
     }
 
     try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !sessionData.session?.user) {
-        return { isAuthenticated: false };
+      const res = await this.callRpc<{
+        success: boolean;
+        isAuthenticated?: boolean;
+        role?: string;
+        username?: string;
+        fullName?: string;
+      }>('admin_custom_verify_session', {
+        p_admin_token: adminToken,
+      });
+
+      if (res.success && res.data?.isAuthenticated) {
+        return {
+          isAuthenticated: true,
+          role: res.data.role,
+          username: res.data.username,
+          fullName: res.data.fullName,
+        };
       }
 
-      const userId = sessionData.session.user.id;
-      const { data: profile, error: profileError } = await supabase
-        .from('admin_profiles')
-        .select('id, role')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (profileError || !profile || !['superadmin', 'admin', 'marshal'].includes(profile.role)) {
-        return { isAuthenticated: false };
-      }
-
-      return {
-        isAuthenticated: true,
-        role: profile.role,
-        userId,
-      };
+      return { isAuthenticated: false };
     } catch {
       return { isAuthenticated: false };
     }
   }
 
+  /**
+   * Fetch complete administrative dashboard state via authenticated session token.
+   */
+  public static async fetchAdminDashboardData(adminToken: string): Promise<{
+    success: boolean;
+    teams?: Team[];
+    locations?: LocationCheckpoint[];
+    puzzles?: Riddle[];
+    routes?: RouteAssignment[];
+    progress?: TeamRoundProgress[];
+    incidents?: AntiCheatIncident[];
+    error?: string;
+  }> {
+    if (!isSupabaseConfigured || !supabase) return { success: false, error: 'Database not configured.' };
+
+    try {
+      const res = await this.callRpc<{
+        success: boolean;
+        teams?: Record<string, unknown>[];
+        locations?: Record<string, unknown>[];
+        puzzles?: Record<string, unknown>[];
+        routes?: Record<string, unknown>[];
+        progress?: Record<string, unknown>[];
+        incidents?: Record<string, unknown>[];
+        error?: string;
+        message?: string;
+      }>('admin_get_dashboard_data', {
+        p_admin_token: adminToken,
+      });
+
+      if (!res.success || !res.data?.success) {
+        return { success: false, error: res.data?.message || res.data?.error || res.error };
+      }
+
+      const d = res.data;
+
+      const teams: Team[] = (d.teams || []).map((t) => ({
+        id: String(t.id),
+        teamCode: String(t.team_code),
+        teamName: String(t.team_name),
+        credentialsRandomized: Boolean(t.credentials_randomized),
+        status: (t.status as Team['status']) || 'ready',
+        currentRound: Number(t.current_round || 1),
+        strikes: Number(t.total_strikes || 0),
+        startedAt: (t.started_at as string) || null,
+        completedAt: (t.completed_at as string) || null,
+        totalTimeMs: t.total_time_ms !== undefined && t.total_time_ms !== null ? Number(t.total_time_ms) : null,
+        eliminationReason: (t.elimination_reason as string) || null,
+        createdAt: (t.created_at as string) || new Date().toISOString(),
+      }));
+
+      const locations: LocationCheckpoint[] = (d.locations || []).map((l) => ({
+        id: Number(l.id),
+        locationNumber: Number(l.location_number),
+        name: String(l.name),
+        description: String(l.description),
+        riddleClue: (l.riddle_clue as string) || '',
+        capacity: Number(l.capacity || 2),
+        active: Boolean(l.active),
+        qrToken: String(l.qr_token),
+      }));
+
+      const puzzles: Riddle[] = (d.puzzles || []).map((p) => ({
+        id: String(p.id),
+        roundNumber: Number(p.round_number),
+        title: String(p.title),
+        puzzleType: p.puzzle_type as Riddle['puzzleType'],
+        descriptionMd: String(p.description_md || ''),
+        acceptedAnswers: Array.isArray(p.accepted_answers) ? p.accepted_answers : [],
+        caseSensitive: Boolean(p.case_sensitive),
+        normalizeWhitespace: Boolean(p.normalize_whitespace),
+        hints: Array.isArray(p.hints) ? p.hints : [],
+        maxAttempts: Number(p.max_attempts || 5),
+        options: Array.isArray(p.options) ? p.options : undefined,
+        correctOptionIndex: p.correct_option_index !== null ? Number(p.correct_option_index) : undefined,
+        imageUrl: (p.image_url as string) || undefined,
+        imageAlt: (p.image_alt as string) || undefined,
+        published: true,
+        threePartQuestions: p.three_part_questions as Riddle['threePartQuestions'],
+        threePartAnswers: p.three_part_answers as Riddle['threePartAnswers'],
+        codeLanguage: (p.code_language as string) || undefined,
+        codeSnippet: (p.code_snippet as string) || undefined,
+        riddleClue: (p.riddle_clue as string) || undefined,
+        isActive: p.is_active !== undefined ? Boolean(p.is_active) : true,
+      }));
+
+      const routes: RouteAssignment[] = (d.routes || []).map((r) => ({
+        teamId: String(r.team_id),
+        roundNumber: Number(r.round_number),
+        locationId: Number(r.location_id),
+      }));
+
+      const progress: TeamRoundProgress[] = (d.progress || []).map((pr) => ({
+        teamId: String(pr.team_id),
+        roundNumber: Number(pr.round_number),
+        puzzleSolved: Boolean(pr.puzzle_solved),
+        puzzleSolvedAt: (pr.puzzle_solved_at as string) || null,
+        qrScanned: Boolean(pr.qr_scanned),
+        qrScannedAt: (pr.qr_scanned_at as string) || null,
+        attemptsCount: Number(pr.attempts_count || 0),
+        roundStartedAt: (pr.round_started_at as string) || new Date().toISOString(),
+        deadlineAt: (pr.deadline_at as string) || new Date().toISOString(),
+        graceDeadlineAt: (pr.grace_deadline_at as string) || new Date().toISOString(),
+        completedAt: (pr.qr_scanned_at as string) || null,
+        timedOut: pr.status === 'timed_out',
+      }));
+
+      const incidents: AntiCheatIncident[] = (d.incidents || []).map((a) => {
+        const details = (a.details as Record<string, unknown>) || {};
+        const strikeNum = Number(details.strike_number || (a.event_type === 'team_eliminated_anti_cheat' ? 4 : 1));
+        return {
+          id: String(a.id),
+          teamId: String(a.team_id || ''),
+          teamCode: String(details.team_code || ''),
+          teamName: String(details.team_name || ''),
+          roundNumber: Number(details.round_number || 1),
+          violationType: (details.violation_type as any) || 'WINDOW_BLUR',
+          strikeNumber: strikeNum,
+          timestamp: (a.created_at as string) || new Date().toISOString(),
+          metadata: details,
+          status: a.event_type === 'team_eliminated_anti_cheat' ? 'eliminated' : 'warning',
+          notes: String(details.notes || ''),
+        };
+      });
+
+      return {
+        success: true,
+        teams,
+        locations,
+        puzzles,
+        routes,
+        progress,
+        incidents,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: msg };
+    }
+  }
+
   /* -------------------------------------------------------------------------
-   * Event Lifecycle RPCs (Admin Controlled)
+   * Event Lifecycle RPCs (Admin Controlled - Requires Custom Admin Token)
    * ------------------------------------------------------------------------- */
 
-  public static async setEventStatus(status: 'draft' | 'ready' | 'live' | 'paused' | 'finished') {
+  public static async setEventStatus(status: 'draft' | 'ready' | 'live' | 'paused' | 'finished', adminToken: string) {
     return this.callRpc<{ success: boolean; status: string; message: string }>('admin_set_event_status', {
+      p_admin_token: adminToken,
       p_status: status,
     });
   }
 
-  public static async startEvent() {
-    return this.callRpc<{ success: boolean; status: string; message: string }>('admin_start_event');
+  public static async startEvent(adminToken: string) {
+    return this.callRpc<{ success: boolean; status: string; message: string }>('admin_start_event', {
+      p_admin_token: adminToken,
+    });
   }
 
-  public static async pauseEvent() {
-    return this.callRpc<{ success: boolean; status: string; message: string }>('admin_pause_event');
+  public static async pauseEvent(adminToken: string) {
+    return this.callRpc<{ success: boolean; status: string; message: string }>('admin_pause_event', {
+      p_admin_token: adminToken,
+    });
   }
 
-  public static async resumeEvent() {
-    return this.callRpc<{ success: boolean; status: string; message: string }>('admin_resume_event');
+  public static async resumeEvent(adminToken: string) {
+    return this.callRpc<{ success: boolean; status: string; message: string }>('admin_resume_event', {
+      p_admin_token: adminToken,
+    });
   }
 
-  public static async endEvent() {
-    return this.callRpc<{ success: boolean; status: string; message: string }>('admin_end_event');
+  public static async endEvent(adminToken: string) {
+    return this.callRpc<{ success: boolean; status: string; message: string }>('admin_end_event', {
+      p_admin_token: adminToken,
+    });
   }
 
   /* -------------------------------------------------------------------------
-   * Admin Operations RPCs
+   * Admin Operations RPCs (Strict Custom Admin Token Enforcement)
    * ------------------------------------------------------------------------- */
 
-  public static async reinstateTeam(teamId: string) {
+  public static async reinstateTeam(teamId: string, adminToken: string) {
     return this.callRpc<{ success: boolean; message: string }>('admin_reinstate_team', {
+      p_admin_token: adminToken,
       p_team_id: teamId,
     });
   }
 
-  public static async eliminateTeam(teamId: string, reason: string) {
+  public static async adminCreateTeam(teamName: string, teamCode: string, adminToken: string) {
+    return this.callRpc<{
+      success: boolean;
+      team?: {
+        id: string;
+        team_code: string;
+        team_name: string;
+        status: string;
+        current_round: number;
+        total_strikes: number;
+        credentials_randomized: boolean;
+        created_at: string;
+      };
+      error?: string;
+      message: string;
+    }>('admin_create_team', {
+      p_admin_token: adminToken,
+      p_team_code: teamCode.trim().toUpperCase(),
+      p_team_name: teamName.trim(),
+    });
+  }
+
+  public static async adminUpdateTeam(teamId: string, teamCode: string, teamName: string, adminToken: string) {
+    return this.callRpc<{ success: boolean; error?: string; message: string }>('admin_update_team', {
+      p_admin_token: adminToken,
+      p_team_id: teamId,
+      p_team_code: teamCode.trim().toUpperCase(),
+      p_team_name: teamName.trim(),
+    });
+  }
+
+  public static async adminDeleteTeam(teamId: string, force = false, adminToken: string) {
+    return this.callRpc<{ success: boolean; error?: string; message: string }>('admin_delete_team', {
+      p_admin_token: adminToken,
+      p_team_id: teamId,
+      p_force: force,
+    });
+  }
+
+  public static async adminGenerateTeamCredentials(confirmationCode: string, adminToken: string) {
+    return this.callRpc<{
+      success: boolean;
+      count?: number;
+      credentials?: {
+        team_id: string;
+        team_code: string;
+        team_name: string;
+        passcode: string;
+      }[];
+      error?: string;
+      message: string;
+    }>('admin_generate_team_credentials', {
+      p_admin_token: adminToken,
+      p_confirmation_code: confirmationCode,
+    });
+  }
+
+  public static async eliminateTeam(teamId: string, reason: string, adminToken: string) {
     return this.callRpc<{ success: boolean; message: string }>('admin_eliminate_team', {
+      p_admin_token: adminToken,
       p_team_id: teamId,
       p_reason: reason,
     });
   }
 
-  public static async adminResetTeamSession(teamId: string) {
+  public static async adminResetTeamSession(teamId: string, adminToken: string) {
     return this.callRpc<{ success: boolean; message: string }>('admin_reset_team_session', {
+      p_admin_token: adminToken,
       p_team_id: teamId,
     });
   }
 
-  public static async adminResetTeamProgress(teamId: string) {
+  public static async adminResetTeamProgress(teamId: string, adminToken: string) {
     return this.callRpc<{ success: boolean; message: string }>('admin_reset_team_progress', {
+      p_admin_token: adminToken,
       p_team_id: teamId,
     });
   }
 
-  public static async adminRegenerateEventQrTokens(confirmationCode?: string) {
+  public static async adminRegenerateEventQrTokens(confirmationCode: string, adminToken: string) {
     return this.callRpc<{ success: boolean; regenerated_locations: number; timestamp: string; message: string }>(
       'admin_regenerate_event_qr_tokens',
-      { p_confirmation_code: confirmationCode || null }
+      {
+        p_admin_token: adminToken,
+        p_confirmation_code: confirmationCode,
+      }
     );
   }
 
@@ -529,9 +734,11 @@ export class SupabaseService {
     locationId: number,
     name: string,
     description: string,
-    capacity: number
+    capacity: number,
+    adminToken: string
   ) {
     return this.callRpc<{ success: boolean; message: string }>('admin_update_location', {
+      p_admin_token: adminToken,
       p_location_id: locationId,
       p_name: name,
       p_description: description,
@@ -539,20 +746,23 @@ export class SupabaseService {
     });
   }
 
-  public static async adminRegenerateLocationToken(locationId: number) {
+  public static async adminRegenerateLocationToken(locationId: number, adminToken: string) {
     return this.callRpc<{ success: boolean; qrToken: string; message: string }>('admin_regenerate_location_token', {
+      p_admin_token: adminToken,
       p_location_id: locationId,
     });
   }
 
-  public static async generateTeamRoutes(activeLocations = 10) {
+  public static async generateTeamRoutes(activeLocations = 10, adminToken: string) {
     return this.callRpc<{ success: boolean; message: string }>('generate_team_routes', {
+      p_admin_token: adminToken,
       p_active_locations: activeLocations,
     });
   }
 
-  public static async adminSavePuzzle(riddle: Riddle) {
+  public static async adminSavePuzzle(riddle: Riddle, adminToken: string) {
     return this.callRpc<{ success: boolean; message: string }>('admin_save_puzzle', {
+      p_admin_token: adminToken,
       p_id: riddle.id,
       p_round_number: riddle.roundNumber,
       p_title: riddle.title,
@@ -666,7 +876,7 @@ export class SupabaseService {
     try {
       const { data, error } = await supabase
         .from('teams')
-        .select('id, team_code, team_name, status, current_round, total_strikes, elimination_reason, started_at, completed_at, total_time_ms, created_at')
+        .select('id, team_code, team_name, credentials_randomized, status, current_round, total_strikes, elimination_reason, started_at, completed_at, total_time_ms, created_at')
         .order('team_code');
 
       if (error || !data) return [];
@@ -675,6 +885,7 @@ export class SupabaseService {
         id: String(t.id),
         teamCode: String(t.team_code),
         teamName: String(t.team_name),
+        credentialsRandomized: Boolean(t.credentials_randomized),
         status: (t.status as Team['status']) || 'ready',
         currentRound: Number(t.current_round || 1),
         strikes: Number(t.total_strikes || 0),

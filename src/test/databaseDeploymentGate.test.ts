@@ -68,10 +68,11 @@ assert(/GRANT\s+SELECT\s*\([^\)]*\)\s+ON\s+(?:TABLE\s+)?event_settings\s+TO\s+an
 assert(!/GRANT\s+SELECT\s*\([^\)]*starting_qr_token[^\)]*\)\s+ON\s+(?:TABLE\s+)?event_settings\s+TO\s+anon/i.test(schemaSql), 'starting_qr_token is strictly excluded from anon column grants');
 assert(!/GRANT\s+SELECT\s*\([^\)]*final_qr_token[^\)]*\)\s+ON\s+(?:TABLE\s+)?event_settings\s+TO\s+anon/i.test(schemaSql), 'final_qr_token is strictly excluded from anon column grants');
 
-// 4. Stored Procedure & Function Inventory (Exactly 17 Functions)
+// 4. Stored Procedure & Function Inventory (22 Functions)
 console.log('\n--- 3. Stored Procedure (RPC) Inventory & Security Definer Integrity ---');
 const expectedFunctions = [
   'is_admin',
+  'is_superadmin',
   'login_team',
   'logout_team',
   'get_team_state',
@@ -86,6 +87,10 @@ const expectedFunctions = [
   'admin_reset_team_progress',
   'admin_regenerate_event_qr_tokens',
   'admin_randomize_team_credentials',
+  'admin_generate_team_credentials',
+  'admin_create_team',
+  'admin_update_team',
+  'admin_delete_team',
   'bootstrap_randomize_team_credentials',
   'bootstrap_regenerate_event_qr_tokens',
 ];
@@ -102,7 +107,7 @@ for (const fn of expectedFunctions) {
   const revokeRegex = new RegExp(`REVOKE\\s+ALL\\s+ON\\s+FUNCTION\\s+${fn}\\s*\\([\\w\\s,]*\\)\\s+FROM\\s+PUBLIC`, 'i');
   assert(revokeRegex.test(schemaSql), `Function [${fn}] explicitly revokes permissions FROM PUBLIC`);
 }
-assert(expectedFunctions.length === 17, 'Total expected functions is exactly 17');
+assert(expectedFunctions.length === 22, 'Total expected functions is exactly 22');
 
 // Verify admin_record_violation requires is_admin() and is revoked from anon
 const adminRecordViolationCode = schemaSql.match(/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+admin_record_violation[\s\S]*?\$\$;/i)?.[0] || '';
@@ -112,7 +117,7 @@ assert(/GRANT\s+EXECUTE\s+ON\s+FUNCTION\s+admin_record_violation\([^\)]*\)\s+TO\
 
 // Verify report_team_violation verifies active_session_token_hash and is granted to anon, authenticated
 const reportTeamViolationCode = schemaSql.match(/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+report_team_violation[\s\S]*?\$\$;/i)?.[0] || '';
-assert(/active_session_token_hash\s*=\s*extensions\.digest\(p_session_token,\s*'sha256'\)/i.test(reportTeamViolationCode), 'report_team_violation verifies active_session_token_hash via sha256');
+assert(/active_session_token_hash\s*=\s*(?:encode\()?extensions\.digest\(p_session_token,\s*'sha256'\)/i.test(reportTeamViolationCode), 'report_team_violation verifies active_session_token_hash via sha256');
 assert(/GRANT\s+EXECUTE\s+ON\s+FUNCTION\s+report_team_violation\([^\)]*\)\s+TO\s+anon,\s*authenticated/i.test(schemaSql), 'report_team_violation is granted to anon, authenticated');
 
 // 5. Bootstrap Function Privilege Restriction
@@ -175,9 +180,13 @@ assert(/'image_alt',\s*v_next_puzzle\.image_alt/i.test(verifyLocationCode), 'ver
 // 10. Default Credentials Lockout Check in login_team
 console.log('\n--- 9. Production Login Lockout Protection ---');
 const loginTeamCode = schemaSql.match(/CREATE\s+OR\s+REPLACE\s+FUNCTION\s+login_team[\s\S]*?\$\$;/i)?.[0] || '';
-assert(/IF\s+v_team\.credentials_randomized\s*=\s*false\s*THEN/i.test(loginTeamCode), 'login_team rejects unrandomized default credentials');
+assert(/IF\s+v_team\.credentials_randomized\s*=\s*false\s*THEN[\s\S]*?CREDENTIALS_NOT_INITIALIZED/i.test(loginTeamCode), 'login_team rejects unrandomized default credentials with CREDENTIALS_NOT_INITIALIZED');
 assert(/v_attempts\s*>=\s*10/i.test(loginTeamCode), 'login_team throttles after 10 failed attempts');
 assert(/INTERVAL\s+'60 seconds'/i.test(loginTeamCode), 'login_team sets 60-second lockout cooldown');
+
+// Verify admin_profiles zero self-elevation
+const adminProfilesInsertPolicy = schemaSql.match(/CREATE\s+POLICY\s+admin_profiles_insert[\s\S]*?;/i)?.[0] || '';
+assert(/is_superadmin\(\)/i.test(adminProfilesInsertPolicy), 'admin_profiles_insert strictly restricts admin profile creation to is_superadmin()');
 
 // 11. Concurrency, Row Locks & Idempotency Audit
 console.log('\n--- 10. Concurrency Row-Locking & Idempotency Verification ---');

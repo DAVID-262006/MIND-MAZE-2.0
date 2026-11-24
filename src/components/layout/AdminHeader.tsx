@@ -3,6 +3,7 @@ import { Shield, LogOut, ArrowLeft, ExternalLink } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { StatusBadge } from '../ui/StatusBadge';
 import { BackendStatusBadge } from '../ui/BackendStatusBadge';
+import { useGameStore } from '../../store/gameStore';
 import type { GameStatus } from '../../types';
 
 export interface AdminHeaderProps {
@@ -18,6 +19,8 @@ export function AdminHeader({
   onNavigateHome,
   onViewPlayer,
 }: AdminHeaderProps) {
+  const { adminRole } = useGameStore();
+
   return (
     <header className="sticky top-0 z-40 w-full bg-arena-bg/95 backdrop-blur-md border-b border-arena-border pt-[env(safe-area-inset-top,0px)]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
@@ -38,6 +41,20 @@ export function AdminHeader({
 
         {/* Right: Status & Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {adminRole && (
+            <span
+              className={`hidden sm:inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase tracking-wider border ${
+                adminRole === 'superadmin'
+                  ? 'bg-purple-950/80 border-purple-500/50 text-purple-300'
+                  : adminRole === 'admin'
+                  ? 'bg-blue-950/80 border-blue-500/50 text-blue-300'
+                  : 'bg-zinc-800 border-zinc-600 text-zinc-300'
+              }`}
+            >
+              {adminRole}
+            </span>
+          )}
+
           <BackendStatusBadge />
 
           <StatusBadge

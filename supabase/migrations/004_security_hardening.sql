@@ -143,7 +143,7 @@ BEGIN
     SELECT * INTO v_team
     FROM teams
     WHERE id = p_team_id
-      AND active_session_token_hash = extensions.digest(p_session_token, 'sha256')
+      AND active_session_token_hash = encode(extensions.digest(p_session_token, 'sha256'), 'hex')
     FOR UPDATE;
 
     IF NOT FOUND THEN

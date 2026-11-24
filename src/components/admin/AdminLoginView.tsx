@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { DashboardCard } from '../ui/DashboardCard';
-import { Shield, KeyRound, Mail, AlertOctagon, Loader2 } from 'lucide-react';
+import { Shield, KeyRound, User, AlertOctagon, Loader2 } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 
 export interface AdminLoginViewProps {
@@ -11,7 +11,7 @@ export interface AdminLoginViewProps {
 
 export function AdminLoginView({ onLoginSuccess }: AdminLoginViewProps) {
   const { loginAdmin } = useGameStore();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -20,14 +20,15 @@ export function AdminLoginView({ onLoginSuccess }: AdminLoginViewProps) {
     e.preventDefault();
     setErrorMessage(null);
 
-    if (!email.trim() || !password) {
-      setErrorMessage('Please enter both administrator email and password.');
+    const cleanUsername = username.trim();
+    if (!cleanUsername || !password) {
+      setErrorMessage('Please enter both administrator username and password.');
       return;
     }
 
     setIsLoading(true);
     try {
-      const res = await loginAdmin(email, password);
+      const res = await loginAdmin(cleanUsername, password);
       if (!res.success) {
         setErrorMessage(res.error || 'Authentication failed. Please verify credentials.');
         return;
@@ -65,13 +66,13 @@ export function AdminLoginView({ onLoginSuccess }: AdminLoginViewProps) {
             )}
 
             <Input
-              label="Administrator Email"
-              type="email"
-              placeholder="admin@mindmaze.event"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              leadingIcon={<Mail className="w-4 h-4" />}
-              helperText="Authorized Supabase administrator email account"
+              label="Administrator Username"
+              type="text"
+              placeholder="e.g. mindmaze"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              leadingIcon={<User className="w-4 h-4" />}
+              helperText="Authorized administrator username"
               required
               disabled={isLoading}
             />

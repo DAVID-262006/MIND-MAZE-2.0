@@ -115,7 +115,7 @@ export interface Team {
   id: string;
   teamCode: string;
   teamName: string;
-  accessCode?: string; // Optional: omitted in zero-trust client queries
+  credentialsRandomized?: boolean; // True once server-side cryptographic credentials have been issued
   status: TeamStatus;
   currentRound: number; // 1 - 10
   strikes: number; // 0 - 4 (1-3 warnings, 4th = automatic elimination)
@@ -230,4 +230,15 @@ export interface FullGameBackup {
   progress: TeamRoundProgress[];
   incidents: AntiCheatIncident[];
 }
+
+export type AdminRole = 'superadmin' | 'admin' | 'marshal';
+
+export interface AdminSession {
+  token: string;
+  username: string;
+  role: AdminRole;
+  fullName: string;
+  expiresAt: string;
+}
+
 

@@ -41,6 +41,30 @@ ALTER TABLE puzzles
     ADD COLUMN IF NOT EXISTS code_snippet TEXT DEFAULT '',
     ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
 
+-- Populate CODE_BASED and THREE_PART_TEXT challenge examples
+UPDATE puzzles
+SET puzzle_type = 'CODE_BASED',
+    title = 'Cumulative Subarray Range Sum',
+    description_md = 'Analyze the Python code below. When executed with range `left = 1` and `right = 4` (inclusive) on list `[3, 8, 2, 5, 12, 7]`, what exact integer value is printed?',
+    accepted_answers = ARRAY['27'],
+    hints = ARRAY['Compute the sum of elements at indices 1, 2, 3, and 4: 8 + 2 + 5 + 12.'],
+    code_language = 'python',
+    code_snippet = 'def range_sum(arr, left, right):
+    return sum(arr[left:right + 1])
+
+data = [3, 8, 2, 5, 12, 7]
+print(range_sum(data, 1, 4))'
+WHERE id = 'puz-1';
+
+UPDATE puzzles
+SET puzzle_type = 'THREE_PART_TEXT',
+    title = 'Computer Science Fundamentals Triad',
+    description_md = 'Answer all three fundamental computer science questions below. Each sub-question is evaluated independently. Correct answers lock in green.',
+    three_part_questions = '{"partA": "What fundamental data structure operates on a Last-In, First-Out (LIFO) order?", "partB": "What is the base-10 integer value of the binary byte 00101010?", "partC": "What cryptographic network protocol secures HTTP traffic across the Internet?"}'::jsonb,
+    three_part_answers = '{"partA": ["stack", "call stack"], "partB": ["42"], "partC": ["https", "tls", "ssl"]}'::jsonb,
+    hints = ARRAY['Part A: Utilized in recursion call frames.', 'Part B: Sum powers 32 + 8 + 2.', 'Part C: HTTPS standard security protocol.']
+WHERE id = 'puz-5';
+
 -- 3. Upgrade submit_puzzle_answer RPC with 3-part & code validation
 CREATE OR REPLACE FUNCTION submit_puzzle_answer(
     p_team_id UUID,

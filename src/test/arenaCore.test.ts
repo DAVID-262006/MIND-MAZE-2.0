@@ -165,7 +165,6 @@ const dummyTeam: Team = {
   id: 'strike-team',
   teamCode: 'ST01',
   teamName: 'Strike Test Team',
-  accessCode: 'TeamPass!ST01',
   status: 'active',
   currentRound: 1,
   strikes: 0,
@@ -198,10 +197,10 @@ assert(dummyTeam.strikes === 4 && dummyTeam.status === 'eliminated', 'Violation 
 console.log('\n--- 6. Testing Leaderboard Ranking & Tie-Breakers ---');
 
 const testTeams: Team[] = [
-  { id: 't1', teamCode: 'T01', teamName: 'Fast Clean Winner', accessCode: 'pass', status: 'completed', currentRound: 10, strikes: 0, createdAt: new Date(now).toISOString() },
-  { id: 't2', teamCode: 'T02', teamName: 'Slow Clean Finisher', accessCode: 'pass', status: 'completed', currentRound: 10, strikes: 1, createdAt: new Date(now).toISOString() },
-  { id: 't3', teamCode: 'T03', teamName: 'Eliminated Team', accessCode: 'pass', status: 'eliminated', currentRound: 4, strikes: 3, createdAt: new Date(now).toISOString() },
-  { id: 't4', teamCode: 'T04', teamName: 'Active Mid-Pack', accessCode: 'pass', status: 'active', currentRound: 6, strikes: 0, createdAt: new Date(now).toISOString() },
+  { id: 't1', teamCode: 'T01', teamName: 'Fast Clean Winner', status: 'completed', currentRound: 10, strikes: 0, createdAt: new Date(now).toISOString() },
+  { id: 't2', teamCode: 'T02', teamName: 'Slow Clean Finisher', status: 'completed', currentRound: 10, strikes: 1, createdAt: new Date(now).toISOString() },
+  { id: 't3', teamCode: 'T03', teamName: 'Eliminated Team', status: 'eliminated', currentRound: 4, strikes: 3, createdAt: new Date(now).toISOString() },
+  { id: 't4', teamCode: 'T04', teamName: 'Active Mid-Pack', status: 'active', currentRound: 6, strikes: 0, createdAt: new Date(now).toISOString() },
 ];
 
 const testProgressList: TeamRoundProgress[] = [

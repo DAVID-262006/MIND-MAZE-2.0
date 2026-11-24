@@ -81,14 +81,14 @@ export class StorageService {
       if (raw && raw !== 'undefined' && raw !== 'null') {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Validate and sanitize each team
+          // Validate and sanitize each team (zero credentials stored)
           const sanitized: Team[] = parsed
             .filter((t) => t && typeof t === 'object' && t.id && t.teamCode)
             .map((t) => ({
               id: String(t.id),
               teamCode: String(t.teamCode).toUpperCase(),
               teamName: String(t.teamName || `Team ${t.teamCode}`),
-              accessCode: String(t.accessCode || `TeamPass!${t.teamCode}`),
+              credentialsRandomized: Boolean(t.credentialsRandomized),
               status: VALID_TEAM_STATUSES.includes(t.status) ? t.status : 'ready',
               currentRound: typeof t.currentRound === 'number' && t.currentRound >= 1 && t.currentRound <= 10
                 ? t.currentRound
@@ -112,7 +112,20 @@ export class StorageService {
 
   public static saveTeams(teams: Team[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.TEAMS, JSON.stringify(teams));
+      // Ensure zero sensitive credentials or passwords can ever leak into localStorage
+      const sanitized = teams.map((t) => ({
+        id: t.id,
+        teamCode: t.teamCode,
+        teamName: t.teamName,
+        credentialsRandomized: t.credentialsRandomized,
+        status: t.status,
+        currentRound: t.currentRound,
+        strikes: t.strikes,
+        createdAt: t.createdAt,
+        eliminationReason: t.eliminationReason,
+        completedAt: t.completedAt,
+      }));
+      localStorage.setItem(STORAGE_KEYS.TEAMS, JSON.stringify(sanitized));
     } catch (e) {
       console.error('Failed to save teams to storage', e);
     }

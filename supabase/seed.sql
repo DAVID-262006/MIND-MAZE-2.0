@@ -3,6 +3,8 @@
 -- Pre-populates Event Settings (20 teams), 10 Locations, 10 Puzzles, 20 Teams, Balanced Latin Square
 -- ==============================================================================
 
+SET search_path = public, extensions, pg_temp;
+
 -- 1. GLOBAL EVENT SETTINGS (20 Teams Standard)
 INSERT INTO event_settings (
     id, event_name, status, total_teams, active_locations_count,
@@ -245,14 +247,14 @@ What is your probability of winning if you switch?',
     '{}'::jsonb
 )
 ON CONFLICT (id) DO UPDATE SET
-    title = EXCLUDED.title,
-    puzzle_type = EXCLUDED.puzzle_type,
-    description_md = EXCLUDED.description_md,
-    accepted_answers = EXCLUDED.accepted_answers,
+    title = CASE WHEN puzzles.puzzle_type IN ('CODE_BASED', 'THREE_PART_TEXT') THEN puzzles.title ELSE EXCLUDED.title END,
+    puzzle_type = CASE WHEN puzzles.puzzle_type IN ('CODE_BASED', 'THREE_PART_TEXT') THEN puzzles.puzzle_type ELSE EXCLUDED.puzzle_type END,
+    description_md = CASE WHEN puzzles.puzzle_type IN ('CODE_BASED', 'THREE_PART_TEXT') THEN puzzles.description_md ELSE EXCLUDED.description_md END,
+    accepted_answers = CASE WHEN puzzles.puzzle_type IN ('CODE_BASED', 'THREE_PART_TEXT') THEN puzzles.accepted_answers ELSE EXCLUDED.accepted_answers END,
     case_sensitive = EXCLUDED.case_sensitive,
     normalize_whitespace = EXCLUDED.normalize_whitespace,
     riddle_text = EXCLUDED.riddle_text,
-    hints = EXCLUDED.hints,
+    hints = CASE WHEN puzzles.puzzle_type IN ('CODE_BASED', 'THREE_PART_TEXT') THEN puzzles.hints ELSE EXCLUDED.hints END,
     max_attempts = EXCLUDED.max_attempts,
     options = EXCLUDED.options,
     correct_option_index = EXCLUDED.correct_option_index,
@@ -261,58 +263,69 @@ ON CONFLICT (id) DO UPDATE SET
     sample_cases = EXCLUDED.sample_cases,
     starter_code = EXCLUDED.starter_code;
 
--- Populate CODE_BASED and THREE_PART_TEXT challenge examples
-UPDATE puzzles
-SET puzzle_type = 'CODE_BASED',
-    title = 'Cumulative Subarray Range Sum',
-    description_md = 'Analyze the Python code below. When executed with range `left = 1` and `right = 4` (inclusive) on list `[3, 8, 2, 5, 12, 7]`, what exact integer value is printed?',
-    accepted_answers = ARRAY['27'],
-    hints = ARRAY['Compute the sum of elements at indices 1, 2, 3, and 4: 8 + 2 + 5 + 12.'],
-    code_language = 'python',
-    code_snippet = 'def range_sum(arr, left, right):
+-- Populate CODE_BASED and THREE_PART_TEXT challenge examples dynamically if columns exist (safe for 001/002 schemas & subsequent upgrades)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'puzzles' AND column_name = 'code_language'
+    ) THEN
+        EXECUTE $dyn$
+            UPDATE puzzles
+            SET puzzle_type = 'CODE_BASED',
+                title = 'Cumulative Subarray Range Sum',
+                description_md = 'Analyze the Python code below. When executed with range `left = 1` and `right = 4` (inclusive) on list `[3, 8, 2, 5, 12, 7]`, what exact integer value is printed?',
+                accepted_answers = ARRAY['27'],
+                hints = ARRAY['Compute the sum of elements at indices 1, 2, 3, and 4: 8 + 2 + 5 + 12.'],
+                code_language = 'python',
+                code_snippet = 'def range_sum(arr, left, right):
     return sum(arr[left:right + 1])
 
 data = [3, 8, 2, 5, 12, 7]
 print(range_sum(data, 1, 4))'
-WHERE id = 'puz-1';
+            WHERE id = 'puz-1';
 
-UPDATE puzzles
-SET puzzle_type = 'THREE_PART_TEXT',
-    title = 'Computer Science Fundamentals Triad',
-    description_md = 'Answer all three fundamental computer science questions below. Each sub-question is evaluated independently. Correct answers lock in green.',
-    three_part_questions = '{"partA": "What fundamental data structure operates on a Last-In, First-Out (LIFO) order?", "partB": "What is the base-10 integer value of the binary byte 00101010?", "partC": "What cryptographic network protocol secures HTTP traffic across the Internet?"}'::jsonb,
-    three_part_answers = '{"partA": ["stack", "call stack"], "partB": ["42"], "partC": ["https", "tls", "ssl"]}'::jsonb,
-    hints = ARRAY['Part A: Utilized in recursion call frames.', 'Part B: Sum powers 32 + 8 + 2.', 'Part C: HTTPS standard security protocol.']
-WHERE id = 'puz-5';
+            UPDATE puzzles
+            SET puzzle_type = 'THREE_PART_TEXT',
+                title = 'Computer Science Fundamentals Triad',
+                description_md = 'Answer all three fundamental computer science questions below. Each sub-question is evaluated independently. Correct answers lock in green.',
+                three_part_questions = '{"partA": "What fundamental data structure operates on a Last-In, First-Out (LIFO) order?", "partB": "What is the base-10 integer value of the binary byte 00101010?", "partC": "What cryptographic network protocol secures HTTP traffic across the Internet?"}'::jsonb,
+                three_part_answers = '{"partA": ["stack", "call stack"], "partB": ["42"], "partC": ["https", "tls", "ssl"]}'::jsonb,
+                hints = ARRAY['Part A: Utilized in recursion call frames.', 'Part B: Sum powers 32 + 8 + 2.', 'Part C: HTTPS standard security protocol.']
+            WHERE id = 'puz-5';
+        $dyn$;
+    END IF;
+END $$;
 
--- 4. EXACTLY 20 COMPETITION TEAMS (T01 - T20) WITH BCRYPT HASHES
+-- 4. EXACTLY 20 COMPETITION TEAMS (T01 - T20) WITH UNUSABLE INITIAL HASHES
+-- Requires explicit admin_generate_team_credentials() invocation before login is permitted
 INSERT INTO teams (team_code, team_name, passcode_hash, status, current_round, total_strikes, credentials_randomized, members) VALUES
-('T01', 'Alpha Centauri', crypt('Arena2026!T01', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T02', 'Bravo Vanguards', crypt('Arena2026!T02', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T03', 'Charlie Cyphers', crypt('Arena2026!T03', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T04', 'Delta Drifters', crypt('Arena2026!T04', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T05', 'Echo Enigmas', crypt('Arena2026!T05', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T06', 'Foxtrot Falcons', crypt('Arena2026!T06', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T07', 'Golf Griffins', crypt('Arena2026!T07', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T08', 'Hotel Hawks', crypt('Arena2026!T08', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T09', 'India Igniters', crypt('Arena2026!T09', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T10', 'Juliet Juggernauts', crypt('Arena2026!T10', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T11', 'Kilo Krakens', crypt('Arena2026!T11', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T12', 'Lima Lancers', crypt('Arena2026!T12', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T13', 'Mike Mavericks', crypt('Arena2026!T13', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T14', 'November Navigators', crypt('Arena2026!T14', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T15', 'Oscar Oracles', crypt('Arena2026!T15', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T16', 'Papa Phantoms', crypt('Arena2026!T16', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T17', 'Quebec Quasars', crypt('Arena2026!T17', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T18', 'Romeo Rangers', crypt('Arena2026!T18', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T19', 'Sierra Spectres', crypt('Arena2026!T19', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
-('T20', 'Tango Titans', crypt('Arena2026!T20', gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb)
+('T01', 'Alpha Centauri', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T02', 'Bravo Vanguards', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T03', 'Charlie Cyphers', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T04', 'Delta Drifters', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T05', 'Echo Enigmas', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T06', 'Foxtrot Falcons', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T07', 'Golf Griffins', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T08', 'Hotel Hawks', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T09', 'India Igniters', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T10', 'Juliet Juggernauts', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T11', 'Kilo Krakens', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T12', 'Lima Lancers', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T13', 'Mike Mavericks', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T14', 'November Navigators', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T15', 'Oscar Oracles', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T16', 'Papa Phantoms', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T17', 'Quebec Quasars', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T18', 'Romeo Rangers', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T19', 'Sierra Spectres', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb),
+('T20', 'Tango Titans', crypt(encode(gen_random_bytes(32), 'hex'), gen_salt('bf', 10)), 'ready', 1, 0, false, '[{"name": "Lead", "role": "Lead"}]'::jsonb)
 ON CONFLICT (team_code) DO UPDATE SET
     team_name = EXCLUDED.team_name,
     passcode_hash = CASE WHEN teams.credentials_randomized THEN teams.passcode_hash ELSE EXCLUDED.passcode_hash END,
-    status = 'ready',
-    current_round = 1,
-    total_strikes = 0;
+    status = CASE WHEN teams.status IN ('active', 'completed', 'eliminated') THEN teams.status ELSE EXCLUDED.status END,
+    current_round = CASE WHEN teams.current_round > 1 THEN teams.current_round ELSE EXCLUDED.current_round END,
+    total_strikes = CASE WHEN teams.total_strikes > 0 THEN teams.total_strikes ELSE EXCLUDED.total_strikes END;
 
 -- 5. BALANCED 20-TEAM LATIN SQUARE ROUTE ALLOCATION
 DO $$

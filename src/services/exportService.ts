@@ -43,3 +43,14 @@ export function exportRoutesCSV(routes: RouteAssignment[], teams: Team[]): void 
   downloadFile(csv, filename, 'text/csv;charset=utf-8;');
 }
 
+export function exportCredentialsCSV(credentials: { team_code: string; team_name: string; passcode: string }[]): void {
+  let csv = 'TeamCode,TeamName,Passcode,Status\n';
+  credentials.forEach((c) => {
+    const cleanName = c.team_name.replace(/"/g, '""');
+    csv += `${c.team_code},"${cleanName}",${c.passcode},ISSUED\n`;
+  });
+
+  const filename = `mindmaze2_team_credentials_${new Date().toISOString().slice(0, 10)}.csv`;
+  downloadFile(csv, filename, 'text/csv;charset=utf-8;');
+}
+

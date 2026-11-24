@@ -32,8 +32,9 @@ import type { Riddle, PuzzleType, ThreePartResult } from '../../types';
 const OPTION_LABELS = ['A', 'B', 'C', 'D'];
 
 export function AdminPuzzlesTab() {
-  const { riddles, saveRiddle, deleteRiddle, config, updateConfig, teams } = useGameStore();
+  const { riddles, saveRiddle, deleteRiddle, config, updateConfig, teams, adminRole } = useGameStore();
   const { success, error: toastError, warning } = useToast();
+  const isSuperadminOrAdmin = adminRole === 'superadmin' || adminRole === 'admin';
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [editingRiddle, setEditingRiddle] = useState<Riddle | null>(null);
@@ -368,37 +369,39 @@ export function AdminPuzzlesTab() {
             </Button>
           </div>
 
-          <Button
-            size="sm"
-            variant="primary"
-            icon={<Plus className="w-3.5 h-3.5" />}
-            onClick={() => {
-              setEditingRiddle({} as Riddle);
-              setFormRound(riddles.length + 1);
-              setFormTitle('');
-              setFormType('CODE_BASED');
-              setFormDesc('');
-              setFormAnswers('');
-              setFormHints('');
-              setFormRiddleClue('');
-              setFormIsActive(true);
-              setPartAQ('');
-              setPartAA('');
-              setPartBQ('');
-              setPartBA('');
-              setPartCQ('');
-              setPartCA('');
-              setCodeLang('python');
-              setCodeSnippet('');
-              setFormOptions(['Option A', 'Option B', 'Option C', 'Option D']);
-              setFormCorrectOptionIndex(0);
-              setFormImageUrl('');
-              setFormImageAlt('');
-              setActiveModalTab('edit');
-            }}
-          >
-            Add Station Question
-          </Button>
+          {isSuperadminOrAdmin && (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<Plus className="w-3.5 h-3.5" />}
+              onClick={() => {
+                setEditingRiddle({} as Riddle);
+                setFormRound(riddles.length + 1);
+                setFormTitle('');
+                setFormType('CODE_BASED');
+                setFormDesc('');
+                setFormAnswers('');
+                setFormHints('');
+                setFormRiddleClue('');
+                setFormIsActive(true);
+                setPartAQ('');
+                setPartAA('');
+                setPartBQ('');
+                setPartBA('');
+                setPartCQ('');
+                setPartCA('');
+                setCodeLang('python');
+                setCodeSnippet('');
+                setFormOptions(['Option A', 'Option B', 'Option C', 'Option D']);
+                setFormCorrectOptionIndex(0);
+                setFormImageUrl('');
+                setFormImageAlt('');
+                setActiveModalTab('edit');
+              }}
+            >
+              Add Station Question
+            </Button>
+          )}
         </div>
       </div>
 
@@ -450,16 +453,18 @@ export function AdminPuzzlesTab() {
                 Max Attempts: {riddle.maxAttempts || 5}
               </span>
               <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                  icon={<Trash2 className="w-3.5 h-3.5" />}
-                  onClick={() => handleDelete(riddle.id, riddle.roundNumber)}
-                  title="Delete challenge"
-                >
-                  Delete
-                </Button>
+                {isSuperadminOrAdmin && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                    icon={<Trash2 className="w-3.5 h-3.5" />}
+                    onClick={() => handleDelete(riddle.id, riddle.roundNumber)}
+                    title="Delete challenge"
+                  >
+                    Delete
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
@@ -467,7 +472,7 @@ export function AdminPuzzlesTab() {
                   icon={<Edit3 className="w-3.5 h-3.5" />}
                   onClick={() => openEdit(riddle)}
                 >
-                  Configure
+                  {isSuperadminOrAdmin ? 'Configure' : 'View'}
                 </Button>
               </div>
             </div>
