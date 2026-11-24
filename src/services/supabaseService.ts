@@ -63,8 +63,12 @@ export class SupabaseService {
         const isSchemaPending =
           error.code === '42883' ||
           error.code === '42P01' ||
+          error.code === 'PGRST125' ||
+          error.code === 'PGRST202' ||
           error.message.includes('function') ||
-          error.message.includes('relation');
+          error.message.includes('relation') ||
+          error.message.includes('Invalid path specified in request URL') ||
+          error.message.includes('schema cache');
 
         return {
           success: false,

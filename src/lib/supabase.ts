@@ -4,10 +4,12 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
  * Supabase Environment Configuration
  * Values are injected at build/runtime via Vite's import.meta.env
  */
-const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : undefined) as string | undefined;
-const supabasePublishableKey = (typeof import.meta !== 'undefined' && import.meta.env
+const rawSupabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : undefined) as string | undefined;
+const supabaseUrl = rawSupabaseUrl ? rawSupabaseUrl.trim().replace(/\/+$/, '') : undefined;
+const rawPublishableKey = (typeof import.meta !== 'undefined' && import.meta.env
   ? (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY)
   : undefined) as string | undefined;
+const supabasePublishableKey = rawPublishableKey ? rawPublishableKey.trim() : undefined;
 
 /**
  * Validate that environment configuration is present and non-empty.
@@ -15,8 +17,8 @@ const supabasePublishableKey = (typeof import.meta !== 'undefined' && import.met
 export const isSupabaseConfigured: boolean = Boolean(
   supabaseUrl &&
   supabasePublishableKey &&
-  supabaseUrl.trim().startsWith('https://') &&
-  supabasePublishableKey.trim().length > 10 &&
+  supabaseUrl.startsWith('https://') &&
+  supabasePublishableKey.length > 10 &&
   !supabaseUrl.includes('your-project-ref')
 );
 
