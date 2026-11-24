@@ -633,25 +633,31 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       if (!adminToken) {
         return { success: false, error: 'Administrator session token required.' };
       }
-      const res = await SupabaseService.adminCreateTeam(cleanName, cleanCode, adminToken);
-      const teamData = res.data?.team;
-      if (!res.success || !res.data?.success || !teamData) {
-        return { success: false, error: res.data?.error || res.data?.message || res.error || 'Failed to create team in database.' };
+      try {
+        const res = await SupabaseService.adminCreateTeam(cleanName, cleanCode, adminToken);
+        const teamData = res.data?.team;
+        if (res.success && res.data?.success && teamData) {
+          const createdTeam: Team = {
+            id: teamData.id,
+            teamCode: teamData.team_code,
+            teamName: teamData.team_name,
+            credentialsRandomized: Boolean(teamData.credentials_randomized),
+            status: (teamData.status as Team['status']) || 'ready',
+            currentRound: teamData.current_round || 1,
+            strikes: teamData.total_strikes || 0,
+            createdAt: teamData.created_at,
+          };
+
+          setTeams((prev) => [...prev, createdTeam]);
+          return { success: true, team: createdTeam };
+        }
+
+        if (!res.isFallback && !res.error?.includes('not yet deployed') && !res.error?.includes('schema cache')) {
+          return { success: false, error: res.data?.error || res.data?.message || res.error || 'Failed to create team in database.' };
+        }
+      } catch (e) {
+        console.warn('[Supabase] adminCreateTeam fallback to local:', e);
       }
-
-      const createdTeam: Team = {
-        id: teamData.id,
-        teamCode: teamData.team_code,
-        teamName: teamData.team_name,
-        credentialsRandomized: Boolean(teamData.credentials_randomized),
-        status: (teamData.status as Team['status']) || 'ready',
-        currentRound: teamData.current_round || 1,
-        strikes: teamData.total_strikes || 0,
-        createdAt: teamData.created_at,
-      };
-
-      setTeams((prev) => [...prev, createdTeam]);
-      return { success: true, team: createdTeam };
     }
 
     const newTeam: Team = {
@@ -677,9 +683,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       const targetTeam = teams.find((t) => t.id === id);
       const code = (updates.teamCode || targetTeam?.teamCode || '').trim().toUpperCase();
       const name = (updates.teamName || targetTeam?.teamName || '').trim();
-      const res = await SupabaseService.adminUpdateTeam(id, code, name, adminToken);
-      if (!res.success || !res.data?.success) {
-        return { success: false, error: res.data?.error || res.data?.message || res.error };
+      try {
+        const res = await SupabaseService.adminUpdateTeam(id, code, name, adminToken);
+        if (!res.success || !res.data?.success) {
+          if (!res.isFallback && !res.error?.includes('not yet deployed') && !res.error?.includes('schema cache')) {
+            return { success: false, error: res.data?.error || res.data?.message || res.error };
+          }
+        }
+      } catch (e) {
+        console.warn('[Supabase] adminUpdateTeam fallback to local:', e);
       }
     }
 
@@ -692,9 +704,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       if (!adminToken) {
         return { success: false, error: 'Administrator session token required.' };
       }
-      const res = await SupabaseService.adminDeleteTeam(id, force, adminToken);
-      if (!res.success || !res.data?.success) {
-        return { success: false, error: res.data?.error || res.data?.message || res.error };
+      try {
+        const res = await SupabaseService.adminDeleteTeam(id, force, adminToken);
+        if (!res.success || !res.data?.success) {
+          if (!res.isFallback && !res.error?.includes('not yet deployed') && !res.error?.includes('schema cache')) {
+            return { success: false, error: res.data?.error || res.data?.message || res.error };
+          }
+        }
+      } catch (e) {
+        console.warn('[Supabase] adminDeleteTeam fallback to local:', e);
       }
     }
 

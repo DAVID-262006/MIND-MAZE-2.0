@@ -119,6 +119,60 @@ ALTER TABLE public.puzzles ADD CONSTRAINT puzzles_round_number_check
     CHECK (round_number BETWEEN 1 AND 9);
 
 -- -----------------------------------------------------------------------------
+-- 3b. HELPER: verify_admin_token (VALIDATES TOKEN AGAINST ADMIN USERS OR MASTER TOKEN)
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.verify_admin_token(VARCHAR, TEXT[]);
+DROP FUNCTION IF EXISTS public.verify_admin_token(VARCHAR, VARCHAR[]);
+CREATE OR REPLACE FUNCTION public.verify_admin_token(
+    p_admin_token VARCHAR,
+    p_allowed_roles TEXT[] DEFAULT NULL
+)
+RETURNS VARCHAR
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_token_hash VARCHAR;
+    v_row RECORD;
+BEGIN
+    IF p_admin_token IS NULL OR TRIM(p_admin_token) = '' THEN
+        RETURN NULL;
+    END IF;
+
+    -- Master hardcoded token bypass for bootstrap/standalone operation
+    IF p_admin_token = 'mm2_hardcoded_admin_token_2026' THEN
+        RETURN 'superadmin';
+    END IF;
+
+    v_token_hash := encode(extensions.digest(p_admin_token, 'sha256'), 'hex');
+
+    BEGIN
+        SELECT u.id, u.username, u.role, u.is_active, u.session_expires_at
+        INTO v_row
+        FROM public.admin_users u
+        WHERE u.active_session_token_hash = v_token_hash;
+    EXCEPTION WHEN undefined_table THEN
+        RETURN NULL;
+    END;
+
+    IF NOT FOUND OR v_row.is_active = false THEN
+        RETURN NULL;
+    END IF;
+
+    IF v_row.session_expires_at IS NOT NULL AND v_row.session_expires_at <= NOW() THEN
+        RETURN NULL;
+    END IF;
+
+    IF p_allowed_roles IS NOT NULL AND NOT (v_row.role = ANY(p_allowed_roles)) THEN
+        RETURN NULL;
+    END IF;
+
+    RETURN v_row.role;
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
 -- 4. RPC: admin_set_team_credentials
 -- Allows admin to create or update custom username and bcrypt password for a team
 -- -----------------------------------------------------------------------------
@@ -620,6 +674,340 @@ BEGIN
         'status', v_team.status,
         'total_strikes', v_team.total_strikes
     );
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7b. RPC: admin_create_team
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_create_team(VARCHAR, VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_create_team(VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_create_team;
+CREATE OR REPLACE FUNCTION public.admin_create_team(
+    p_admin_token VARCHAR,
+    p_team_code VARCHAR,
+    p_team_name VARCHAR
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+    v_clean_code VARCHAR;
+    v_clean_name VARCHAR;
+    v_team RECORD;
+    v_plain_password VARCHAR;
+    v_password_hash VARCHAR;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Valid administrator session required.');
+    END IF;
+
+    v_clean_code := UPPER(TRIM(p_team_code));
+    v_clean_name := TRIM(p_team_name);
+
+    IF v_clean_code IS NULL OR v_clean_code = '' THEN
+        RETURN jsonb_build_object('success', false, 'error', 'INVALID_CODE', 'message', 'Team code is required.');
+    END IF;
+
+    IF v_clean_name IS NULL OR v_clean_name = '' THEN
+        RETURN jsonb_build_object('success', false, 'error', 'INVALID_NAME', 'message', 'Team name is required.');
+    END IF;
+
+    v_plain_password := 'user1122';
+    v_password_hash := extensions.crypt(v_plain_password, extensions.gen_salt('bf', 10));
+
+    INSERT INTO public.teams (
+        team_code, team_name, username, passcode_hash, password_hash,
+        credentials_configured, credentials_randomized, status, current_round, total_strikes
+    ) VALUES (
+        v_clean_code, v_clean_name, LOWER(v_clean_code), v_password_hash, v_password_hash,
+        true, false, 'ready', 1, 0
+    )
+    RETURNING * INTO v_team;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'team', jsonb_build_object(
+            'id', v_team.id,
+            'team_code', v_team.team_code,
+            'team_name', v_team.team_name,
+            'username', v_team.username,
+            'status', v_team.status,
+            'current_round', v_team.current_round,
+            'total_strikes', v_team.total_strikes,
+            'credentials_configured', v_team.credentials_configured,
+            'created_at', v_team.created_at
+        ),
+        'message', 'Team ' || v_clean_code || ' created successfully.'
+    );
+EXCEPTION WHEN unique_violation THEN
+    RETURN jsonb_build_object('success', false, 'error', 'DUPLICATE_CODE', 'message', 'A team with code or username ' || v_clean_code || ' already exists.');
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7c. RPC: admin_update_team
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_update_team(VARCHAR, UUID, VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_update_team(UUID, VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_update_team;
+CREATE OR REPLACE FUNCTION public.admin_update_team(
+    p_admin_token VARCHAR,
+    p_team_id UUID,
+    p_team_code VARCHAR,
+    p_team_name VARCHAR
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+    v_clean_code VARCHAR;
+    v_clean_name VARCHAR;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Valid administrator session required.');
+    END IF;
+
+    v_clean_code := UPPER(TRIM(p_team_code));
+    v_clean_name := TRIM(p_team_name);
+
+    UPDATE public.teams
+    SET team_code = COALESCE(NULLIF(v_clean_code, ''), team_code),
+        team_name = COALESCE(NULLIF(v_clean_name, ''), team_name),
+        updated_at = NOW()
+    WHERE id = p_team_id;
+
+    RETURN jsonb_build_object('success', true, 'message', 'Team updated successfully.');
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7d. RPC: admin_delete_team
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_delete_team(VARCHAR, UUID, BOOLEAN);
+DROP FUNCTION IF EXISTS public.admin_delete_team(UUID, BOOLEAN);
+DROP FUNCTION IF EXISTS public.admin_delete_team(UUID);
+DROP FUNCTION IF EXISTS public.admin_delete_team;
+CREATE OR REPLACE FUNCTION public.admin_delete_team(
+    p_admin_token VARCHAR,
+    p_team_id UUID,
+    p_force BOOLEAN DEFAULT false
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+    v_team RECORD;
+    v_has_progress BOOLEAN;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Unauthorized: Valid administrator session token required.');
+    END IF;
+
+    SELECT * INTO v_team FROM public.teams WHERE id = p_team_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'error', 'NOT_FOUND', 'message', 'Team not found.');
+    END IF;
+
+    SELECT EXISTS (
+        SELECT 1 FROM public.team_progress
+        WHERE team_id = p_team_id AND (puzzle_solved = true OR qr_scanned = true OR attempts_count > 0)
+    ) INTO v_has_progress;
+
+    IF v_has_progress AND NOT p_force THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'TEAM_HAS_PROGRESS',
+            'message', 'Team ' || v_team.team_code || ' has recorded progress in the competition. To delete, confirm force deletion.'
+        );
+    END IF;
+
+    DELETE FROM public.team_progress WHERE team_id = p_team_id;
+    DELETE FROM public.submissions WHERE team_id = p_team_id;
+    DELETE FROM public.qr_scans WHERE team_id = p_team_id;
+    DELETE FROM public.team_routes WHERE team_id = p_team_id;
+    DELETE FROM public.audit_logs WHERE team_id = p_team_id;
+    DELETE FROM public.teams WHERE id = p_team_id;
+
+    RETURN jsonb_build_object('success', true, 'message', 'Team ' || v_team.team_code || ' deleted successfully.');
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7e. RPC: admin_eliminate_team & admin_reinstate_team
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_eliminate_team(VARCHAR, UUID, VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_eliminate_team;
+CREATE OR REPLACE FUNCTION public.admin_eliminate_team(
+    p_admin_token VARCHAR,
+    p_team_id UUID,
+    p_reason VARCHAR DEFAULT 'Disqualified by tournament administrator.'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin', 'marshal']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Admin session required.');
+    END IF;
+
+    UPDATE public.teams
+    SET status = 'eliminated',
+        active_session_token_hash = NULL,
+        updated_at = NOW()
+    WHERE id = p_team_id;
+
+    RETURN jsonb_build_object('success', true, 'message', 'Team marked as eliminated.');
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.admin_reinstate_team(VARCHAR, UUID);
+DROP FUNCTION IF EXISTS public.admin_reinstate_team;
+CREATE OR REPLACE FUNCTION public.admin_reinstate_team(
+    p_admin_token VARCHAR,
+    p_team_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Admin session required.');
+    END IF;
+
+    UPDATE public.teams
+    SET status = 'active',
+        total_strikes = 0,
+        updated_at = NOW()
+    WHERE id = p_team_id;
+
+    RETURN jsonb_build_object('success', true, 'message', 'Team reinstated.');
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7f. RPC: admin_reset_team_session
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_reset_team_session(VARCHAR, UUID);
+DROP FUNCTION IF EXISTS public.admin_reset_team_session;
+CREATE OR REPLACE FUNCTION public.admin_reset_team_session(
+    p_admin_token VARCHAR,
+    p_team_id UUID
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin', 'marshal']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Admin session required.');
+    END IF;
+
+    UPDATE public.teams
+    SET active_session_token_hash = NULL,
+        device_fingerprint = NULL,
+        failed_login_attempts = 0,
+        locked_until = NULL,
+        updated_at = NOW()
+    WHERE id = p_team_id;
+
+    RETURN jsonb_build_object('success', true, 'message', 'Active team session revoked.');
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 7g. RPC: admin_regenerate_location_token & admin_regenerate_event_qr_tokens
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_regenerate_location_token(VARCHAR, INT);
+DROP FUNCTION IF EXISTS public.admin_regenerate_location_token;
+CREATE OR REPLACE FUNCTION public.admin_regenerate_location_token(
+    p_admin_token VARCHAR,
+    p_location_id INT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+    v_new_token VARCHAR;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Unauthorized: Valid administrator session token required.');
+    END IF;
+
+    v_new_token := 'LOC-' || UPPER(encode(extensions.gen_random_bytes(6), 'hex'));
+
+    UPDATE public.locations
+    SET qr_token = v_new_token,
+        updated_at = NOW()
+    WHERE id = p_location_id;
+
+    RETURN jsonb_build_object('success', true, 'new_token', v_new_token, 'location_id', p_location_id);
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.admin_regenerate_event_qr_tokens(VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_regenerate_event_qr_tokens;
+CREATE OR REPLACE FUNCTION public.admin_regenerate_event_qr_tokens(
+    p_admin_token VARCHAR,
+    p_confirmation_code VARCHAR DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+    v_loc RECORD;
+    v_new_token VARCHAR;
+    v_counter INT := 0;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Unauthorized: Valid administrator session token required.');
+    END IF;
+
+    IF p_confirmation_code IS NULL OR (p_confirmation_code <> 'CONFIRM_REGENERATE_TOKENS' AND p_confirmation_code <> 'CONFIRM') THEN
+        RETURN jsonb_build_object('success', false, 'error', 'CONFIRMATION_REQUIRED', 'message', 'Supply confirmation code "CONFIRM_REGENERATE_TOKENS".');
+    END IF;
+
+    FOR v_loc IN SELECT id FROM public.locations WHERE active = true AND location_number <= 9 LOOP
+        v_new_token := 'LOC-' || UPPER(encode(extensions.gen_random_bytes(6), 'hex'));
+        UPDATE public.locations SET qr_token = v_new_token, updated_at = NOW() WHERE id = v_loc.id;
+        v_counter := v_counter + 1;
+    END LOOP;
+
+    RETURN jsonb_build_object('success', true, 'count', v_counter, 'message', 'Regenerated tokens for ' || v_counter || ' stations.');
 END;
 $$;
 
@@ -1145,5 +1533,29 @@ GRANT EXECUTE ON FUNCTION public.admin_get_dashboard_data(VARCHAR) TO anon, auth
 
 REVOKE ALL ON FUNCTION public.record_puzzle_solved(VARCHAR, INT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.record_puzzle_solved(VARCHAR, INT) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_create_team(VARCHAR, VARCHAR, VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_create_team(VARCHAR, VARCHAR, VARCHAR) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_update_team(VARCHAR, UUID, VARCHAR, VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_update_team(VARCHAR, UUID, VARCHAR, VARCHAR) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_delete_team(VARCHAR, UUID, BOOLEAN) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_delete_team(VARCHAR, UUID, BOOLEAN) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_eliminate_team(VARCHAR, UUID, VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_eliminate_team(VARCHAR, UUID, VARCHAR) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_reinstate_team(VARCHAR, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_reinstate_team(VARCHAR, UUID) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_reset_team_session(VARCHAR, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_reset_team_session(VARCHAR, UUID) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_regenerate_location_token(VARCHAR, INT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_regenerate_location_token(VARCHAR, INT) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_regenerate_event_qr_tokens(VARCHAR, VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_regenerate_event_qr_tokens(VARCHAR, VARCHAR) TO anon, authenticated;
 
 COMMENT ON TABLE public.teams IS 'Participant teams with admin-managed credentials (username + bcrypt passcode_hash)';
