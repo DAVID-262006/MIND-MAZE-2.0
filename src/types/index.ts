@@ -15,6 +15,8 @@ export type RoundStatus =
   | 'timed_out';
 
 export type PuzzleType = 
+  | 'CODE_BASED'
+  | 'THREE_PART_TEXT'
   | 'TEXT_RIDDLE' 
   | 'MCQ' 
   | 'IMAGE_QUIZ' 
@@ -38,6 +40,34 @@ export interface TestCase {
   explanation?: string;
 }
 
+export interface ThreePartQuestions {
+  partA: string;
+  partB: string;
+  partC: string;
+}
+
+export interface ThreePartAnswers {
+  partA: string[];
+  partB: string[];
+  partC: string[];
+}
+
+export interface ThreePartSubmission {
+  partA: string;
+  partB: string;
+  partC: string;
+}
+
+export interface PartValidationStatus {
+  correct: boolean;
+}
+
+export interface ThreePartResult {
+  partA?: PartValidationStatus;
+  partB?: PartValidationStatus;
+  partC?: PartValidationStatus;
+}
+
 export interface Riddle {
   id: string;
   roundNumber: number;
@@ -50,6 +80,7 @@ export interface Riddle {
   maxAttempts: number;
   hints: string[];
   published: boolean;
+  isActive?: boolean;
   // Multi-format puzzle properties
   options?: string[]; // 4 configurable options for MCQ and IMAGE_MCQ
   correctOptionIndex?: number; // 0, 1, 2, 3 for MCQ and IMAGE_MCQ
@@ -60,6 +91,13 @@ export interface Riddle {
   sampleCases?: TestCase[];
   hiddenCases?: TestCase[];
   starterCode?: Partial<Record<SupportedLanguage, string>>;
+  // Question Engine Upgrade properties
+  threePartQuestions?: ThreePartQuestions;
+  threePartAnswers?: ThreePartAnswers;
+  codeLanguage?: string;
+  codeSnippet?: string;
+  riddleText?: string;
+  riddleClue?: string;
 }
 
 export interface LocationCheckpoint {
@@ -70,20 +108,23 @@ export interface LocationCheckpoint {
   capacity: number;
   active: boolean;
   qrToken: string; // 10-digit numeric token
+  riddleClue?: string;
 }
 
 export interface Team {
   id: string;
   teamCode: string;
   teamName: string;
-  accessCode: string; // Plaintext access code/password for local auth
+  accessCode?: string; // Optional: omitted in zero-trust client queries
   status: TeamStatus;
   currentRound: number; // 1 - 10
-  strikes: number; // 0 - 3
+  strikes: number; // 0 - 4 (1-3 warnings, 4th = automatic elimination)
   completedAt?: string | null;
   eliminationReason?: string | null;
   createdAt: string;
   activeSessionToken?: string | null;
+  startedAt?: string | null;
+  totalTimeMs?: number | null;
 }
 
 export interface RouteAssignment {
@@ -118,6 +159,7 @@ export interface TeamRoundProgress {
   graceDeadlineAt: string; // ISO string (+5 min + 30s)
   completedAt?: string | null;
   timedOut?: boolean;
+  riddleRevealed?: string | null;
 }
 
 export interface AntiCheatIncident {

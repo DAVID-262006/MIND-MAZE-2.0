@@ -80,7 +80,7 @@ export function AdminTeamsTab() {
     setEditingTeam(team);
     setEditName(team.teamName);
     setEditCode(team.teamCode);
-    setEditAccess(team.accessCode);
+    setEditAccess(team.accessCode || '');
   };
 
   return (
@@ -179,9 +179,14 @@ export function AdminTeamsTab() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => {
-                            reinstateTeam(team.id);
-                            success('Team Reinstated', `${team.teamCode} strikes cleared and reinstated.`);
+                          onClick={async () => {
+                            try {
+                              await reinstateTeam(team.id);
+                              success('Team Reinstated', `${team.teamCode} strikes cleared and reinstated.`);
+                            } catch (err: unknown) {
+                              const msg = err instanceof Error ? err.message : String(err);
+                              toastError('Reinstate Failed', msg);
+                            }
                           }}
                           className="p-1.5 text-electric-emerald hover:bg-emerald-500/10"
                           title="Reinstate eliminated team"
@@ -247,7 +252,7 @@ export function AdminTeamsTab() {
           />
           <Input
             label="Access Code (Optional)"
-            placeholder="Defaults to Arena2026!CODE"
+            placeholder="Defaults to TeamPass!CODE"
             value={newAccessCode}
             onChange={(e) => setNewAccessCode(e.target.value)}
           />
@@ -321,11 +326,16 @@ export function AdminTeamsTab() {
             <Button
               variant="danger"
               size="sm"
-              onClick={() => {
+              onClick={async () => {
                 if (targetTeam) {
-                  eliminateTeam(targetTeam.id, eliminationReason);
-                  setIsEliminateOpen(false);
-                  warning('Team Eliminated', `${targetTeam.teamCode} disqualified.`);
+                  try {
+                    await eliminateTeam(targetTeam.id, eliminationReason);
+                    setIsEliminateOpen(false);
+                    warning('Team Eliminated', `${targetTeam.teamCode} disqualified.`);
+                  } catch (err: unknown) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    toastError('Elimination Failed', msg);
+                  }
                 }
               }}
             >

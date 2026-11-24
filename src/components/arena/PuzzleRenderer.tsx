@@ -1,17 +1,18 @@
 import React from 'react';
 import { CodingPuzzleView } from './CodingPuzzleView';
+import { ThreePartTextView } from './ThreePartTextView';
 import { TextPuzzleView } from './TextPuzzleView';
 import { CryptoPuzzleView } from './CryptoPuzzleView';
 import { LogicPuzzleView } from './LogicPuzzleView';
 import { McqPuzzleView } from './McqPuzzleView';
 import { ImageQuizView } from './ImageQuizView';
 import { ImageMcqView } from './ImageMcqView';
-import type { Riddle } from '../../types';
+import type { Riddle, ThreePartResult } from '../../types';
 
 export interface PuzzleRendererProps {
   puzzle?: Riddle | null;
   onSolved: () => void;
-  onSubmitAnswer: (answer: string) => { isCorrect: boolean; feedback: string };
+  onSubmitAnswer: (answer: string) => Promise<{ isCorrect: boolean; feedback: string; partResults?: ThreePartResult }> | { isCorrect: boolean; feedback: string; partResults?: ThreePartResult };
   isSolved?: boolean;
 }
 
@@ -33,6 +34,25 @@ export function PuzzleRenderer({
   }
 
   switch (puzzle.puzzleType) {
+    case 'THREE_PART_TEXT':
+      return (
+        <ThreePartTextView
+          puzzle={puzzle}
+          onSolved={onSolved}
+          onSubmitAnswer={onSubmitAnswer}
+          isSolved={isSolved}
+        />
+      );
+    case 'CODE_BASED':
+    case 'coding':
+      return (
+        <CodingPuzzleView
+          puzzle={puzzle}
+          onSolved={onSolved}
+          onSubmitAnswer={onSubmitAnswer}
+          isSolved={isSolved}
+        />
+      );
     case 'TEXT_RIDDLE':
     case 'text':
       return (
@@ -88,7 +108,6 @@ export function PuzzleRenderer({
           isSolved={isSolved}
         />
       );
-    case 'coding':
     default:
       return (
         <CodingPuzzleView

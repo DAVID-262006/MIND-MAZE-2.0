@@ -15,12 +15,14 @@ import type { LocationCheckpoint } from '../../types';
 
 export interface CameraQrScannerProps {
   assignedLocation: LocationCheckpoint;
-  onScanSuccess: (scannedToken: string) => { success: boolean; message: string; isCompleted?: boolean };
+  riddleClue?: string;
+  onScanSuccess: (scannedToken: string) => Promise<{ success: boolean; message: string; isCompleted?: boolean }> | { success: boolean; message: string; isCompleted?: boolean };
   onClose: () => void;
 }
 
 export function CameraQrScanner({
   assignedLocation,
+  riddleClue,
   onScanSuccess,
   onClose,
 }: CameraQrScannerProps) {
@@ -85,7 +87,7 @@ export function CameraQrScanner({
     };
   }, []);
 
-  const handleVerify = (tokenToVerify: string) => {
+  const handleVerify = async (tokenToVerify: string) => {
     if (isVerifying) return;
     const token = tokenToVerify.trim();
 
@@ -98,22 +100,30 @@ export function CameraQrScanner({
     }
 
     setIsVerifying(true);
-    const res = onScanSuccess(token);
-    setIsVerifying(false);
+    try {
+      const res = await onScanSuccess(token);
+      setIsVerifying(false);
 
-    if (res.success) {
-      isStoppedRef.current = true;
-      setVerificationFeedback({
-        success: true,
-        message: res.message,
-      });
-      setTimeout(() => {
-        onClose();
-      }, 1000);
-    } else {
+      if (res.success) {
+        isStoppedRef.current = true;
+        setVerificationFeedback({
+          success: true,
+          message: res.message,
+        });
+        setTimeout(() => {
+          onClose();
+        }, 1000);
+      } else {
+        setVerificationFeedback({
+          success: false,
+          message: res.message,
+        });
+      }
+    } catch (err) {
+      setIsVerifying(false);
       setVerificationFeedback({
         success: false,
-        message: res.message,
+        message: (err as Error).message || 'Verification error occurred.',
       });
     }
   };
@@ -125,6 +135,17 @@ export function CameraQrScanner({
 
   return (
     <div className="space-y-4">
+      {/* Unlocked Navigation Clue Banner */}
+      {riddleClue && (
+        <div className="p-3.5 bg-electric-cyan/10 border border-electric-cyan/30 rounded-xl space-y-1">
+          <div className="flex items-center gap-1.5 text-electric-cyan text-[10px] font-mono font-bold uppercase tracking-wider">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Navigation Riddle / Station Clue</span>
+          </div>
+          <p className="text-xs text-white leading-relaxed font-sans font-medium">{riddleClue}</p>
+        </div>
+      )}
+
       {/* Location Destination Header */}
       <div className="p-3 bg-arena-panel rounded-xl border border-arena-border flex items-start gap-2.5">
         <div className="p-2 bg-electric-cyan/10 rounded-lg text-electric-cyan shrink-0">

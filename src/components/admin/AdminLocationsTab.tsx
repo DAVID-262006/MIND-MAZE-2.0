@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../ui/Toast';
 import { useGameStore } from '../../store/gameStore';
+import { SupabaseService } from '../../services/supabaseService';
 import type { LocationCheckpoint } from '../../types';
 
 export function AdminLocationsTab() {
@@ -65,11 +66,59 @@ export function AdminLocationsTab() {
     }
   };
 
-  const handleRegenerate = (id: number) => {
-    const newToken = regenerateLocationToken(id);
-    success('QR Token Regenerated', `Assigned new 10-digit token: ${newToken}`);
-    if (selectedLocation && selectedLocation.id === id) {
-      setSelectedLocation((prev) => (prev ? { ...prev, qrToken: newToken } : null));
+  // QR Refresh Confirmation Modal state
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    targetId: number | 'all' | null;
+    locationName?: string;
+  }>({
+    isOpen: false,
+    targetId: null,
+  });
+
+  const requestRegenerate = (loc: LocationCheckpoint) => {
+    setConfirmModal({
+      isOpen: true,
+      targetId: loc.id,
+      locationName: `Station #${loc.locationNumber} (${loc.name})`,
+    });
+  };
+
+  const requestRegenerateAll = () => {
+    setConfirmModal({
+      isOpen: true,
+      targetId: 'all',
+      locationName: 'ALL Checkpoint Stations',
+    });
+  };
+
+  const handleCancelRegenerate = () => {
+    setConfirmModal({ isOpen: false, targetId: null });
+  };
+
+  const handleConfirmRegenerate = async () => {
+    const target = confirmModal.targetId;
+    setConfirmModal({ isOpen: false, targetId: null });
+
+    if (target === 'all') {
+      if (SupabaseService.isConfigured()) {
+        try {
+          const res = await SupabaseService.adminRegenerateEventQrTokens();
+          if (res.data?.success) {
+            success('All Station QR Codes Regenerated', res.data.message);
+          }
+        } catch (err) {
+          console.warn('[Supabase] adminRegenerateEventQrTokens error:', err);
+        }
+      }
+      locations.forEach((l) => regenerateLocationToken(l.id));
+      success('All QR Codes Regenerated', 'New 10-digit tokens generated across all stations.');
+    } else if (typeof target === 'number') {
+      const newToken = regenerateLocationToken(target);
+      success('QR Token Regenerated', `Assigned new 10-digit token: ${newToken}`);
+      if (selectedLocation && selectedLocation.id === target) {
+        setSelectedLocation((prev) => (prev ? { ...prev, qrToken: newToken } : null));
+      }
     }
   };
 
@@ -139,6 +188,16 @@ export function AdminLocationsTab() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="danger"
+            className="h-9 px-3 text-xs font-mono font-bold"
+            icon={<RefreshCw className="w-3.5 h-3.5" />}
+            onClick={requestRegenerateAll}
+            title="Regenerate all station QR codes"
+          >
+            Refresh All QR
+          </Button>
           <Button
             size="sm"
             variant={activeSubView === 'tokens' ? 'primary' : 'secondary'}
@@ -215,7 +274,7 @@ export function AdminLocationsTab() {
                     size="sm"
                     variant="ghost"
                     className="p-1.5 text-arena-muted hover:text-white h-8"
-                    onClick={() => handleRegenerate(loc.id)}
+                    onClick={() => requestRegenerate(loc)}
                     title="Regenerate random 10-digit token"
                   >
                     <RefreshCw className="w-3.5 h-3.5" />
@@ -392,6 +451,45 @@ export function AdminLocationsTab() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* QR Refresh Confirmation Safety Modal */}
+      <Modal
+        isOpen={confirmModal.isOpen}
+        onClose={handleCancelRegenerate}
+        title="Regenerate Station QR Codes?"
+        maxWidth="sm"
+      >
+        <div className="space-y-4 py-1">
+          <div className="p-3.5 bg-red-950/60 border border-red-500/60 rounded-xl text-red-200 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-1.5">
+              <strong className="block text-red-300 font-bold">
+                Warning: Token Invalidation Notice
+              </strong>
+              <p className="text-zinc-300 leading-relaxed">
+                This will invalidate all current station QR codes for{' '}
+                <span className="text-white font-bold">{confirmModal.locationName}</span>. Physical
+                QR codes must be re-printed or redistributed. Active participants will not be able to
+                scan old codes. Are you sure?
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-arena-border/60">
+            <Button variant="ghost" size="sm" onClick={handleCancelRegenerate}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              icon={<RefreshCw className="w-3.5 h-3.5" />}
+              onClick={handleConfirmRegenerate}
+            >
+              Confirm Regenerate
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

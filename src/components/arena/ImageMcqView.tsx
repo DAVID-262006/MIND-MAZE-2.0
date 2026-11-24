@@ -7,7 +7,7 @@ import type { Riddle } from '../../types';
 export interface ImageMcqViewProps {
   puzzle: Riddle;
   onSolved: () => void;
-  onSubmitAnswer: (answer: string) => { isCorrect: boolean; feedback: string };
+  onSubmitAnswer: (answer: string) => Promise<{ isCorrect: boolean; feedback: string }> | { isCorrect: boolean; feedback: string };
   isSolved?: boolean;
 }
 
@@ -29,7 +29,7 @@ export function ImageMcqView({
     ? puzzle.options.slice(0, 4)
     : ['Option A', 'Option B', 'Option C', 'Option D'];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedIndex === null || isSolved || submitting) return;
 
@@ -39,19 +39,27 @@ export function ImageMcqView({
     const selectedText = options[selectedIndex];
     const letter = OPTION_LABELS[selectedIndex];
 
-    const res = onSubmitAnswer(selectedText);
-    setSubmitting(false);
+    try {
+      const res = await onSubmitAnswer(selectedText);
+      setSubmitting(false);
 
-    if (res.isCorrect) {
-      setFeedback({
-        isSuccess: true,
-        message: '✓ Correct Option Selected! Proceed to scan the station QR code.',
-      });
-      onSolved();
-    } else {
+      if (res.isCorrect) {
+        setFeedback({
+          isSuccess: true,
+          message: '✓ Correct Option Selected! Proceed to scan the station QR code.',
+        });
+        onSolved();
+      } else {
+        setFeedback({
+          isSuccess: false,
+          message: res.feedback || `Incorrect choice (${letter}). Re-examine the visual diagram and try again.`,
+        });
+      }
+    } catch (err) {
+      setSubmitting(false);
       setFeedback({
         isSuccess: false,
-        message: res.feedback || `Incorrect choice (${letter}). Re-examine the visual diagram and try again.`,
+        message: (err as Error).message || 'Submission error. Please try again.',
       });
     }
   };

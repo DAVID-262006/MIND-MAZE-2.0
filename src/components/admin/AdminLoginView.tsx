@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { DashboardCard } from '../ui/DashboardCard';
-import { Shield, KeyRound, AlertOctagon, Sparkles } from 'lucide-react';
+import { Shield, KeyRound, Mail, AlertOctagon, Loader2 } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 
 export interface AdminLoginViewProps {
@@ -11,27 +11,34 @@ export interface AdminLoginViewProps {
 
 export function AdminLoginView({ onLoginSuccess }: AdminLoginViewProps) {
   const { loginAdmin } = useGameStore();
-  const [passphrase, setPassphrase] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
-    const success = loginAdmin(passphrase);
-    if (!success) {
-      setErrorMessage('Invalid administrator passphrase. (Default: arena2026)');
+    if (!email.trim() || !password) {
+      setErrorMessage('Please enter both administrator email and password.');
       return;
     }
 
-    onLoginSuccess?.();
-  };
+    setIsLoading(true);
+    try {
+      const res = await loginAdmin(email, password);
+      if (!res.success) {
+        setErrorMessage(res.error || 'Authentication failed. Please verify credentials.');
+        return;
+      }
 
-  const handleQuickLogin = () => {
-    setPassphrase('arena2026');
-    const success = loginAdmin('arena2026');
-    if (success) {
       onLoginSuccess?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMessage(`Authentication error: ${msg}`);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -58,38 +65,47 @@ export function AdminLoginView({ onLoginSuccess }: AdminLoginViewProps) {
             )}
 
             <Input
-              label="Master Administrator Passphrase"
-              type="password"
-              placeholder="Enter admin passphrase..."
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-              leadingIcon={<KeyRound className="w-4 h-4" />}
-              helperText="Authoritative passphrase for local administration"
+              label="Administrator Email"
+              type="email"
+              placeholder="admin@mindmaze.event"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              leadingIcon={<Mail className="w-4 h-4" />}
+              helperText="Authorized Supabase administrator email account"
               required
+              disabled={isLoading}
+            />
+
+            <Input
+              label="Password"
+              type="password"
+              placeholder="Enter password..."
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              leadingIcon={<KeyRound className="w-4 h-4" />}
+              helperText="Secure administrator password"
+              required
+              disabled={isLoading}
             />
 
             <Button
               type="submit"
               variant="secondary"
-              className="w-full h-11 text-xs uppercase tracking-wider font-bold border-electric-violet/50 hover:border-electric-violet text-white"
+              disabled={isLoading}
+              className="w-full h-11 text-xs uppercase tracking-wider font-bold border-electric-violet/50 hover:border-electric-violet text-white flex items-center justify-center gap-2"
             >
-              Authenticate Admin Session
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Verifying Credentials...
+                </>
+              ) : (
+                'Authenticate Admin Session'
+              )}
             </Button>
           </form>
-
-          <div className="mt-5 pt-4 border-t border-arena-border/60 text-center">
-            <button
-              type="button"
-              onClick={handleQuickLogin}
-              className="text-xs font-mono text-electric-cyan hover:underline inline-flex items-center gap-1.5"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Fill Default Passphrase (arena2026)</span>
-            </button>
-          </div>
         </DashboardCard>
       </div>
     </div>
   );
 }
-

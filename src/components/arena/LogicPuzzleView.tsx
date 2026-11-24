@@ -7,7 +7,7 @@ import type { Riddle } from '../../types';
 export interface LogicPuzzleViewProps {
   puzzle: Riddle;
   onSolved: () => void;
-  onSubmitAnswer: (answer: string) => { isCorrect: boolean; feedback: string };
+  onSubmitAnswer: (answer: string) => Promise<{ isCorrect: boolean; feedback: string }> | { isCorrect: boolean; feedback: string };
   isSolved?: boolean;
 }
 
@@ -21,26 +21,34 @@ export function LogicPuzzleView({
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ isSuccess?: boolean; message: string } | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!answer.trim() || isSolved) return;
+    if (!answer.trim() || isSolved || submitting) return;
 
     setSubmitting(true);
     setFeedback(null);
 
-    const res = onSubmitAnswer(answer);
-    setSubmitting(false);
+    try {
+      const res = await onSubmitAnswer(answer);
+      setSubmitting(false);
 
-    if (res.isCorrect) {
-      setFeedback({
-        isSuccess: true,
-        message: '✓ Verified Correct! Proceed to scan the station QR code.',
-      });
-      onSolved();
-    } else {
+      if (res.isCorrect) {
+        setFeedback({
+          isSuccess: true,
+          message: '✓ Verified Correct! Proceed to scan the station QR code.',
+        });
+        onSolved();
+      } else {
+        setFeedback({
+          isSuccess: false,
+          message: res.feedback || 'Incorrect deduction. Check logic constraints and try again.',
+        });
+      }
+    } catch (err) {
+      setSubmitting(false);
       setFeedback({
         isSuccess: false,
-        message: res.feedback || 'Incorrect deduction. Check logic constraints and try again.',
+        message: (err as Error).message || 'Submission error. Please try again.',
       });
     }
   };

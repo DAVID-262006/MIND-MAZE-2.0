@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PlayerHeader } from '../layout/PlayerHeader';
 import { TimerDisplay } from '../ui/TimerDisplay';
 import { Button } from '../ui/Button';
@@ -8,17 +8,19 @@ import { useToast } from '../ui/Toast';
 import { ProgressTracker } from './ProgressTracker';
 import { PuzzleRenderer } from './PuzzleRenderer';
 import { CameraQrScanner } from './CameraQrScanner';
+import { WarningModal } from '../anticheat/WarningModal';
 import { useGameStore } from '../../store/gameStore';
 import { useTimer } from '../../hooks/useTimer';
 import { useAntiCheat } from '../../hooks/useAntiCheat';
-import { 
-  MapPin, 
-  QrCode, 
-  ShieldAlert, 
+import { ViolationManager, type WarningConfig } from '../../services/violationManager';
+import {
+  MapPin,
+  QrCode,
   AlertTriangle,
   Lock,
   Unlock,
   LogOut,
+  Maximize2
 } from 'lucide-react';
 import type { Team, GameEventConfig, ViolationType } from '../../types';
 
@@ -53,17 +55,15 @@ export function ActiveGameView({
 
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
-  const [antiCheatModal, setAntiCheatModal] = useState<{
+  const [warningModalState, setWarningModalState] = useState<{
     isOpen: boolean;
-    title: string;
-    message: string;
-    strikeNumber: number;
+    config: WarningConfig | null;
   }>({
     isOpen: false,
-    title: '',
-    message: '',
-    strikeNumber: 0,
+    config: null,
   });
+
+  const cooldownRef = useRef(false);
 
   const currentRound = Math.max(1, Math.min(10, team.currentRound || 1));
   const currentPuzzle = riddles.find((r) => r.roundNumber === currentRound) || riddles[0] || null;
@@ -83,30 +83,100 @@ export function ActiveGameView({
     },
   });
 
-  // Anti-cheat hook - called unconditionally in this active view component
+  // Client-Side Anti-Cheat Detection Hook
   useAntiCheat({
     activeTeam: team,
     isPlaying: config.status === 'live',
-    suppressed: isQrModalOpen || antiCheatModal.isOpen || isLeaveModalOpen,
+    suppressed: isQrModalOpen || warningModalState.isOpen || isLeaveModalOpen || cooldownRef.current,
     onViolation: (type: ViolationType, details) => {
+      if (cooldownRef.current) return;
+
       const res = recordViolation(team.id, type, { reason: details.message });
-      setAntiCheatModal({
-        isOpen: true,
-        title: res.eliminated ? 'Disqualified From Arena' : `Anti-Cheat Strike #${res.strikeNumber} Recorded`,
-        message: res.message,
-        strikeNumber: res.strikeNumber,
-      });
+      if (res.eliminated) {
+        setWarningModalState({ isOpen: false, config: null });
+      } else {
+        const warnConfig = ViolationManager.getWarningConfig(res.strikeNumber, type);
+        setWarningModalState({
+          isOpen: true,
+          config: warnConfig,
+        });
+      }
     },
   });
 
-  const puzzleSolved = currentProgress?.puzzleSolved ?? false;
+  // Fullscreen exit detection during active gameplay
+  useEffect(() => {
+    if (
+      config.status === 'live' &&
+      !isFullscreen &&
+      !warningModalState.isOpen &&
+      !isQrModalOpen &&
+      !isLeaveModalOpen &&
+      !cooldownRef.current &&
+      team.status !== 'eliminated'
+    ) {
+      const res = recordViolation(team.id, 'fullscreen_exit', {
+        reason: 'Fullscreen was exited during active gameplay. Fullscreen is mandatory.',
+      });
 
-  const handlePuzzleSubmit = (answer: string) => {
-    return submitAnswer(team.id, currentRound, answer);
+      if (res.eliminated) {
+        setWarningModalState({ isOpen: false, config: null });
+      } else {
+        const warnConfig = ViolationManager.getWarningConfig(res.strikeNumber, 'fullscreen_exit');
+        setWarningModalState({
+          isOpen: true,
+          config: warnConfig,
+        });
+      }
+    }
+  }, [
+    isFullscreen,
+    config.status,
+    team.id,
+    team.status,
+    warningModalState.isOpen,
+    isQrModalOpen,
+    isLeaveModalOpen,
+    recordViolation,
+  ]);
+
+  const handleAcknowledgeWarning = async () => {
+    cooldownRef.current = true;
+
+    // Restore fullscreen
+    if (!isFullscreen && isSupported && onToggleFullscreen) {
+      onToggleFullscreen();
+    }
+
+    setWarningModalState({ isOpen: false, config: null });
+
+    // Grace period to prevent immediate re-trigger during animation/focus shift
+    setTimeout(() => {
+      cooldownRef.current = false;
+    }, 1500);
   };
 
-  const handleScanSuccess = (token: string) => {
-    const res = verifyQrToken(team.id, currentRound, token);
+  const puzzleSolved = currentProgress?.puzzleSolved ?? false;
+  const riddleClueText =
+    currentProgress?.riddleRevealed ||
+    assignedLocation?.riddleClue ||
+    currentPuzzle?.riddleClue ||
+    currentPuzzle?.riddleText ||
+    'Navigate to your assigned physical location on campus to scan the station QR code.';
+
+  const handlePuzzleSubmit = async (answer: string) => {
+    // Block interaction if warning modal is open or fullscreen is not restored
+    if (warningModalState.isOpen || (!isFullscreen && isSupported)) {
+      return {
+        isCorrect: false,
+        feedback: 'Game interaction locked. Please restore fullscreen and acknowledge warnings to continue.',
+      };
+    }
+    return await submitAnswer(team.id, currentRound, answer);
+  };
+
+  const handleScanSuccess = async (token: string) => {
+    const res = await verifyQrToken(team.id, currentRound, token);
     if (res.success) {
       success('Checkpoint Verified', res.message);
     }
@@ -132,6 +202,25 @@ export function ActiveGameView({
         onToggleFullscreen={isSupported ? onToggleFullscreen : undefined}
         onLogout={handleExitRequest}
       />
+
+      {/* Fullscreen Notice Banner if exited */}
+      {!isFullscreen && isSupported && (
+        <div className="bg-red-950/90 border-b border-red-600 px-4 py-2 flex items-center justify-between gap-3 text-xs text-red-200">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 animate-bounce" />
+            <span>Fullscreen required! Return to fullscreen to submit answers.</span>
+          </div>
+          <Button
+            size="sm"
+            variant="danger"
+            onClick={onToggleFullscreen}
+            className="h-8 text-[11px] font-mono shrink-0"
+            icon={<Maximize2 className="w-3 h-3" />}
+          >
+            Fullscreen
+          </Button>
+        </div>
+      )}
 
       {/* 2. Main Mobile Content */}
       <main className="flex-1 w-full max-w-xl mx-auto px-3.5 sm:px-4 py-3 space-y-4 pb-28">
@@ -208,79 +297,81 @@ export function ActiveGameView({
           )}
         </div>
 
-        {/* Checkpoint Target Card */}
-        <div className="bg-arena-card border border-arena-border rounded-2xl p-4 shadow-md space-y-2.5">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-electric-cyan/10 border border-electric-cyan/30 flex items-center justify-center text-electric-cyan shrink-0">
-                <MapPin className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-[10px] font-mono uppercase tracking-widest text-electric-cyan font-bold block">
-                  Assigned Physical Checkpoint
-                </span>
-                <h3 className="text-base font-bold text-white leading-tight">
-                  {assignedLocation ? assignedLocation.name : 'Resolving checkpoint location...'}
-                </h3>
-              </div>
-            </div>
-
-            <div className="shrink-0">
-              {puzzleSolved ? (
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono font-bold bg-emerald-500/10 text-electric-emerald border border-electric-emerald/30">
-                  <Unlock className="w-3 h-3" />
-                  UNLOCKED
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono font-bold bg-arena-panel text-arena-muted border border-arena-border">
-                  <Lock className="w-3 h-3" />
-                  LOCKED
-                </span>
-              )}
-            </div>
-          </div>
-
-          <p className="text-xs text-arena-muted bg-arena-panel/60 p-2.5 rounded-lg border border-arena-border/50">
-            {assignedLocation?.description || 'Navigate to your assigned physical location on campus.'}
-          </p>
-        </div>
-
-        {/* Puzzle Challenge View */}
+        {/* 1. Puzzle Challenge View (Question displayed first) */}
         <div className="space-y-3">
           <PuzzleRenderer
             puzzle={currentPuzzle}
             isSolved={puzzleSolved}
             onSolved={() => {
-              success('Answer Verified!', 'Proceed to assigned station to scan QR code.');
+              success('Answer Verified!', 'Station navigation riddle unlocked below.');
             }}
             onSubmitAnswer={handlePuzzleSubmit}
           />
         </div>
+
+        {/* 2. Station Navigation Riddle & Clue (Revealed ONLY after question is validated) */}
+        {puzzleSolved && (
+          <div className="bg-arena-card border-2 border-electric-cyan/60 rounded-2xl p-4 sm:p-5 shadow-[0_0_35px_rgba(0,242,254,0.2)] space-y-3.5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-electric-cyan/15 border border-electric-cyan/40 flex items-center justify-center text-electric-cyan shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-electric-cyan font-bold block">
+                    Station Clue Unlocked
+                  </span>
+                  <h3 className="text-sm sm:text-base font-bold text-white leading-tight">
+                    Decode Checkpoint Location
+                  </h3>
+                </div>
+              </div>
+
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-mono font-bold bg-emerald-500/15 text-electric-emerald border border-electric-emerald/40 shrink-0">
+                <Unlock className="w-3.5 h-3.5" />
+                CLUE UNLOCKED
+              </span>
+            </div>
+
+            {/* Navigation Riddle Clue */}
+            <div className="p-3.5 rounded-xl bg-arena-panel/90 border border-arena-border text-xs sm:text-sm text-zinc-100 leading-relaxed font-sans space-y-2">
+              <p className="font-semibold text-white whitespace-pre-wrap">{riddleClueText}</p>
+              <p className="text-[11px] font-mono text-arena-muted pt-1.5 border-t border-arena-border/50">
+                Decode this navigation riddle to locate your physical checkpoint station on campus, then scan its QR code below.
+              </p>
+            </div>
+
+            {/* Clearly visible Scan QR option directly below the riddle */}
+            <button
+              type="button"
+              onClick={() => setIsQrModalOpen(true)}
+              className="w-full h-13 rounded-xl font-mono font-bold text-sm flex items-center justify-center gap-2.5 bg-gradient-to-r from-cyan-400 via-electric-cyan to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-black shadow-[0_0_25px_rgba(0,242,254,0.4)] active:scale-[0.98] transition-all select-none cursor-pointer"
+            >
+              <QrCode className="w-5 h-5 text-black" />
+              <span>SCAN STATION QR CODE</span>
+            </button>
+          </div>
+        )}
       </main>
 
-      {/* 3. Bottom Sticky Action & Progress Bar (Mobile-First) */}
-      <div className="fixed bottom-0 left-0 right-0 z-30 bg-arena-bg/95 backdrop-blur-md border-t border-arena-border/80 px-3.5 sm:px-4 py-2.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-2xl">
-        <div className="max-w-xl mx-auto space-y-2">
-          {/* Large Touch Scan Button (>= 48px height) */}
-          <button
-            type="button"
-            disabled={!puzzleSolved}
-            onClick={() => setIsQrModalOpen(true)}
-            className={`w-full h-12 rounded-xl font-mono font-bold text-sm flex items-center justify-center gap-2.5 transition-all select-none ${
-              puzzleSolved
-                ? 'bg-gradient-to-r from-cyan-400 via-electric-cyan to-emerald-400 text-arena-bg shadow-[0_0_20px_rgba(0,242,254,0.4)] active:scale-[0.98]'
-                : 'bg-arena-panel text-arena-muted border border-arena-border cursor-not-allowed opacity-60'
-            }`}
-          >
-            <QrCode className="w-5 h-5" />
-            <span>
-              {puzzleSolved ? 'SCAN CHECKPOINT QR CODE' : 'SOLVE CHALLENGE TO UNLOCK SCANNER'}
-            </span>
-          </button>
+      {/* 3. Bottom Progress Bar & Mobile Status Bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 bg-arena-bg/95 backdrop-blur-md border-t border-arena-border/80 px-3.5 sm:px-4 py-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-2xl">
+        <div className="max-w-xl mx-auto space-y-1.5">
+          {/* Quick touch trigger if solved and scrolled past */}
+          {puzzleSolved && (
+            <button
+              type="button"
+              onClick={() => setIsQrModalOpen(true)}
+              className="w-full h-10 rounded-lg font-mono font-bold text-xs flex items-center justify-center gap-2 bg-electric-cyan/20 border border-electric-cyan/50 text-electric-cyan hover:bg-electric-cyan/30 active:scale-[0.99] transition-all select-none"
+            >
+              <QrCode className="w-4 h-4" />
+              <span>SCAN STATION QR CODE</span>
+            </button>
+          )}
 
-          {/* Compact 10-Step Progress Tracker */}
+          {/* Compact Progress Tracker */}
           <div className="pt-0.5">
-            <ProgressTracker currentRound={currentRound} totalRounds={10} />
+            <ProgressTracker currentRound={currentRound} totalRounds={config.totalRounds || 10} />
           </div>
         </div>
       </div>
@@ -295,6 +386,7 @@ export function ActiveGameView({
         {assignedLocation ? (
           <CameraQrScanner
             assignedLocation={assignedLocation}
+            riddleClue={riddleClueText}
             onScanSuccess={handleScanSuccess}
             onClose={() => setIsQrModalOpen(false)}
           />
@@ -305,37 +397,15 @@ export function ActiveGameView({
         )}
       </Modal>
 
-      {/* 5. Anti-Cheat Warning Modal */}
-      <Modal
-        isOpen={antiCheatModal.isOpen}
-        onClose={() => setAntiCheatModal((prev) => ({ ...prev, isOpen: false }))}
-        title={antiCheatModal.title}
-        maxWidth="sm"
-        showCloseButton={false}
-      >
-        <div className="space-y-4 text-center py-2">
-          <div className="w-14 h-14 rounded-full bg-red-500/10 border border-electric-crimson/40 flex items-center justify-center text-electric-crimson mx-auto animate-pulse">
-            <ShieldAlert className="w-8 h-8" />
-          </div>
-
-          <div className="space-y-1">
-            <p className="text-xs text-arena-muted leading-relaxed">
-              {antiCheatModal.message}
-            </p>
-            <p className="text-xs font-mono font-bold text-white pt-2">
-              Current Strike Level: {antiCheatModal.strikeNumber} of 3
-            </p>
-          </div>
-
-          <Button
-            variant={antiCheatModal.strikeNumber >= 3 ? 'danger' : 'primary'}
-            className="w-full mt-2 h-11"
-            onClick={() => setAntiCheatModal((prev) => ({ ...prev, isOpen: false }))}
-          >
-            Acknowledge &amp; Return to Arena
-          </Button>
-        </div>
-      </Modal>
+      {/* 5. Production Anti-Cheat Warning Modal (Dark mystery-themed with Red accents & Remaining Indicators) */}
+      {warningModalState.config && (
+        <WarningModal
+          isOpen={warningModalState.isOpen}
+          config={warningModalState.config}
+          isFullscreen={isFullscreen}
+          onAcknowledge={handleAcknowledgeWarning}
+        />
+      )}
 
       {/* 6. Leave Round Confirmation Modal */}
       <Modal

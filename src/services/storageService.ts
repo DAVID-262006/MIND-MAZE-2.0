@@ -88,7 +88,7 @@ export class StorageService {
               id: String(t.id),
               teamCode: String(t.teamCode).toUpperCase(),
               teamName: String(t.teamName || `Team ${t.teamCode}`),
-              accessCode: String(t.accessCode || `Arena2026!${t.teamCode}`),
+              accessCode: String(t.accessCode || `TeamPass!${t.teamCode}`),
               status: VALID_TEAM_STATUSES.includes(t.status) ? t.status : 'ready',
               currentRound: typeof t.currentRound === 'number' && t.currentRound >= 1 && t.currentRound <= 10
                 ? t.currentRound

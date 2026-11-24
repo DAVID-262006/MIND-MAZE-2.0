@@ -6,7 +6,7 @@ import type { Riddle } from '../../types';
 export interface McqPuzzleViewProps {
   puzzle: Riddle;
   onSolved: () => void;
-  onSubmitAnswer: (answer: string) => { isCorrect: boolean; feedback: string };
+  onSubmitAnswer: (answer: string) => Promise<{ isCorrect: boolean; feedback: string }> | { isCorrect: boolean; feedback: string };
   isSolved?: boolean;
 }
 
@@ -26,7 +26,7 @@ export function McqPuzzleView({
     ? puzzle.options.slice(0, 4)
     : ['Option A', 'Option B', 'Option C', 'Option D'];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedIndex === null || isSolved || submitting) return;
 
@@ -37,20 +37,28 @@ export function McqPuzzleView({
     const selectedText = options[selectedIndex];
     const letter = OPTION_LABELS[selectedIndex];
 
-    // Submit the selected option text as primary answer
-    const res = onSubmitAnswer(selectedText);
-    setSubmitting(false);
+    try {
+      // Submit the selected option text as primary answer
+      const res = await onSubmitAnswer(selectedText);
+      setSubmitting(false);
 
-    if (res.isCorrect) {
-      setFeedback({
-        isSuccess: true,
-        message: '✓ Correct Option Selected! Proceed to scan the station QR code.',
-      });
-      onSolved();
-    } else {
+      if (res.isCorrect) {
+        setFeedback({
+          isSuccess: true,
+          message: '✓ Correct Option Selected! Proceed to scan the station QR code.',
+        });
+        onSolved();
+      } else {
+        setFeedback({
+          isSuccess: false,
+          message: res.feedback || `Incorrect option selected (${letter}). Review the question and try again.`,
+        });
+      }
+    } catch (err) {
+      setSubmitting(false);
       setFeedback({
         isSuccess: false,
-        message: res.feedback || `Incorrect option selected (${letter}). Review the question and try again.`,
+        message: (err as Error).message || 'Submission error. Please try again.',
       });
     }
   };

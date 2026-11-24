@@ -75,16 +75,19 @@ Execute these test queries in your Supabase SQL Editor to verify every security 
 -- Simulate an anonymous participant query:
 SET ROLE anon;
 
--- Expectation: ALL return 0 rows (direct access blocked by RLS)
+-- Expectation: Sensitive tables return 0 rows (direct access blocked by RLS)
 SELECT * FROM teams;
-SELECT * FROM event_settings;
 SELECT * FROM puzzles;
 SELECT * FROM locations;
 SELECT * FROM team_routes;
+SELECT * FROM submissions;
+SELECT * FROM qr_scans;
+SELECT * FROM audit_logs;
 
--- Safe views DO work:
+-- Safe views and public event status DO work:
 SELECT * FROM public_leaderboard;
 SELECT * FROM public_event_status;
+SELECT * FROM event_settings; -- Permitted for Supabase Realtime CDC broadcast sync
 
 -- Reset role
 RESET ROLE;
@@ -92,9 +95,11 @@ RESET ROLE;
 
 ### Test 2: Test Team Authentication & Session Token Issuance
 ```sql
-SELECT login_team('T01', 'Maze2026!T01', 'browser-device-test-01');
+-- Note: In production, default credentials are locked until randomized.
+-- If testing before pre-match randomization, temporarily test with the generated passcode from Step A below:
+SELECT login_team('T01', '<PASSCODE_FROM_STEP_A>', 'browser-device-test-01');
 ```
-*Expected Output*: Returns JSON containing `success: true`, `team_id`, and raw `session_token`. Notice `teams` table only stores the SHA-256 hash of this token.
+*Expected Output*: Returns JSON containing `success: true`, `team_id`, and raw `session_token`. Notice the `teams` table only stores the SHA-256 hash of this token.
 
 ### Test 3: Test Starting Journey when Event is NOT Live
 ```sql
@@ -115,14 +120,18 @@ SELECT start_team_journey(
 -- Set event live:
 UPDATE event_settings SET status = 'live' WHERE id = 1;
 
--- 4a. Start Journey:
-SELECT start_team_journey('<TEAM_ID>'::uuid, '<SESSION_TOKEN>', 'MM2-START-SEMINAR-2026');
+-- 4a. Start Journey (using the active starting QR token):
+SELECT start_team_journey('<TEAM_ID>'::uuid, '<SESSION_TOKEN>', (SELECT starting_qr_token FROM event_settings WHERE id = 1));
 
--- 4b. Submit Answer:
-SELECT submit_puzzle_answer('<TEAM_ID>'::uuid, '<SESSION_TOKEN>', '4');
+-- 4b. Submit Answer for Round 1 (Alan Turing):
+SELECT submit_puzzle_answer('<TEAM_ID>'::uuid, '<SESSION_TOKEN>', 'turing');
 
--- 4c. Scan Checkpoint:
-SELECT verify_location_qr('<TEAM_ID>'::uuid, '<SESSION_TOKEN>', '8492019481');
+-- 4c. Scan Assigned Checkpoint for Round 1:
+SELECT verify_location_qr(
+    '<TEAM_ID>'::uuid,
+    '<SESSION_TOKEN>',
+    (SELECT l.qr_token FROM team_routes tr JOIN locations l ON l.id = tr.location_id WHERE tr.team_id = '<TEAM_ID>'::uuid AND tr.round_number = 1)
+);
 ```
 
 ---

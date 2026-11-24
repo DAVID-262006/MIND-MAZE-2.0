@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { PlayerHeader } from '../../components/layout/PlayerHeader';
 import { LoginView } from '../../components/arena/LoginView';
 import { LobbyView } from '../../components/arena/LobbyView';
 import { ActiveGameView } from '../../components/arena/ActiveGameView';
 import { CompletionView } from '../../components/arena/CompletionView';
 import { EliminationView } from '../../components/arena/EliminationView';
+import { FullscreenActivationScreen } from '../../components/anticheat/FullscreenActivationScreen';
 import { useGameStore } from '../../store/gameStore';
 import { useFullscreen } from '../../hooks/useFullscreen';
 
@@ -17,10 +18,12 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
     config,
     activeTeam,
     leaderboard,
+    incidents,
     logoutTeam,
   } = useGameStore();
 
   const { isFullscreen, toggleFullscreen, isSupported } = useFullscreen();
+  const [hasStartedGame, setHasStartedGame] = useState(false);
 
   // 1. If not authenticated, render Welcome / Login Screen
   if (!activeTeam) {
@@ -31,8 +34,8 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
     );
   }
 
-  // 2. If eliminated, render Elimination Screen
-  if (activeTeam.status === 'eliminated') {
+  // 2. If eliminated, render Elimination Screen (Irreversible through player UI)
+  if (activeTeam.status === 'eliminated' || (activeTeam.strikes || 0) >= 4) {
     return (
       <div className="min-h-screen bg-arena-bg flex flex-col">
         <PlayerHeader
@@ -47,6 +50,7 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
           <EliminationView
             team={activeTeam}
             roundNumber={activeTeam.currentRound}
+            incidents={incidents}
             onReturnHome={logoutTeam}
           />
         </main>
@@ -97,7 +101,20 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
     );
   }
 
-  // 5. Active In-Game Screen (rendered in dedicated component with its own unconditional hooks)
+  // 5. Fullscreen Activation Screen: Mandatory before active gameplay begins
+  if (config.status === 'live' && !hasStartedGame && !isFullscreen) {
+    return (
+      <FullscreenActivationScreen
+        team={activeTeam}
+        onFullscreenActivated={() => {
+          setHasStartedGame(true);
+        }}
+        onLogout={logoutTeam}
+      />
+    );
+  }
+
+  // 6. Active In-Game Screen
   return (
     <ActiveGameView
       team={activeTeam}

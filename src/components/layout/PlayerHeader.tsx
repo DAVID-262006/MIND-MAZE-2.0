@@ -1,5 +1,5 @@
 import React from 'react';
-import { Compass, ShieldAlert, Maximize, Minimize, LogOut } from 'lucide-react';
+import { Compass, ShieldAlert, Maximize, LogOut } from 'lucide-react';
 
 export interface PlayerHeaderProps {
   teamCode: string;
@@ -53,28 +53,32 @@ export function PlayerHeader({
                 ? 'bg-emerald-500/10 border-electric-emerald/30 text-electric-emerald'
                 : strikes === 1
                 ? 'bg-amber-500/15 border-electric-amber/40 text-electric-amber'
-                : 'bg-red-500/20 border-electric-crimson/50 text-electric-crimson animate-pulse'
+                : strikes === 2
+                ? 'bg-amber-500/25 border-electric-amber/60 text-amber-300'
+                : strikes === 3
+                ? 'bg-rose-500/20 border-rose-500/60 text-rose-300 animate-pulse'
+                : 'bg-red-500/30 border-electric-crimson/80 text-electric-crimson animate-pulse'
             }`}
-            title={`${strikes} of 3 anti-cheat strikes`}
+            title={
+              strikes >= 4
+                ? 'Team eliminated (4 violations)'
+                : `${strikes} of 3 warnings used`
+            }
           >
             <ShieldAlert className="w-3.5 h-3.5" />
-            <span>{strikes}/3</span>
+            <span>{strikes >= 4 ? 'ELIMINATED' : `${strikes}/3 Warnings`}</span>
           </div>
 
-          {/* Fullscreen Toggle Button */}
-          {onToggleFullscreen && (
+          {/* Fullscreen Restore Button (Only visible if fullscreen was lost/unsupported) */}
+          {onToggleFullscreen && !isFullscreen && (
             <button
               type="button"
               onClick={onToggleFullscreen}
-              className="p-1.5 bg-arena-panel hover:bg-arena-hover text-arena-muted hover:text-white border border-arena-border rounded-lg transition-colors"
-              title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-              aria-label={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+              className="p-1.5 bg-electric-cyan/10 hover:bg-electric-cyan/20 text-electric-cyan border border-electric-cyan/40 rounded-lg transition-colors"
+              title="Enter Fullscreen"
+              aria-label="Enter Fullscreen"
             >
-              {isFullscreen ? (
-                <Minimize className="w-3.5 h-3.5" />
-              ) : (
-                <Maximize className="w-3.5 h-3.5" />
-              )}
+              <Maximize className="w-3.5 h-3.5" />
             </button>
           )}
 

@@ -149,7 +149,15 @@ export function AdminOverviewTab() {
               size="sm"
               variant="primary"
               icon={<Play className="w-3.5 h-3.5" />}
-              onClick={resumeEvent}
+              onClick={async () => {
+                try {
+                  await resumeEvent();
+                  success('Event Resumed', 'Global match clock resumed.');
+                } catch (err: unknown) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  toastError('Resume Failed', msg);
+                }
+              }}
             >
               Resume Global Clock
             </Button>
@@ -377,10 +385,10 @@ export function AdminOverviewTab() {
           <div className="p-3 bg-arena-panel rounded-lg border border-arena-border/60">
             <span className="text-[10px] font-mono uppercase text-arena-muted block">Project Host</span>
             <span className="text-xs font-mono font-semibold text-white block mt-1 truncate">
-              {(typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : undefined) || 'https://yersiudondrbdlerowth.supabase.co'}
+              {(typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env.VITE_SUPABASE_URL : undefined) || 'Not Configured (Set VITE_SUPABASE_URL)'}
             </span>
-            <span className="text-[10px] text-emerald-400 font-mono block mt-0.5">
-              Region: ap-south-1 (Mumbai)
+            <span className="text-[10px] text-electric-cyan font-mono block mt-0.5">
+              Production Supabase Backend
             </span>
           </div>
 
@@ -410,10 +418,15 @@ export function AdminOverviewTab() {
       <ConfirmationDialog
         isOpen={isStartOpen}
         onClose={() => setIsStartOpen(false)}
-        onConfirm={() => {
-          startEvent();
-          setIsStartOpen(false);
-          success('Championship Live!', 'Event started simultaneously for all 20 teams.');
+        onConfirm={async () => {
+          try {
+            await startEvent();
+            setIsStartOpen(false);
+            success('Championship Live!', 'Event started simultaneously for all 20 teams.');
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            toastError('Start Event Failed', msg);
+          }
         }}
         title="Start Championship Event"
         message="Are you ready to initiate the synchronized event clock? All 20 teams will start simultaneously, and routes will be locked permanently."
@@ -423,10 +436,15 @@ export function AdminOverviewTab() {
       <ConfirmationDialog
         isOpen={isPauseOpen}
         onClose={() => setIsPauseOpen(false)}
-        onConfirm={() => {
-          pauseEvent();
-          setIsPauseOpen(false);
-          warning('Event Paused', 'Match clock paused. Active deadlines will be preserved.');
+        onConfirm={async () => {
+          try {
+            await pauseEvent();
+            setIsPauseOpen(false);
+            warning('Event Paused', 'Match clock paused. Active deadlines will be preserved.');
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            toastError('Pause Failed', msg);
+          }
         }}
         title="Pause Championship"
         message="Pausing halts the countdown timer across all participant sessions without penalty. You can resume at any time."
@@ -436,10 +454,15 @@ export function AdminOverviewTab() {
       <ConfirmationDialog
         isOpen={isEndOpen}
         onClose={() => setIsEndOpen(false)}
-        onConfirm={() => {
-          endEvent();
-          setIsEndOpen(false);
-          success('Event Finished', 'Championship has concluded. Final standings locked.');
+        onConfirm={async () => {
+          try {
+            await endEvent();
+            setIsEndOpen(false);
+            success('Event Finished', 'Championship has concluded. Final standings locked.');
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            toastError('End Event Failed', msg);
+          }
         }}
         title="Conclude Event"
         message="This marks the championship finished and freezes the final leaderboard standings."

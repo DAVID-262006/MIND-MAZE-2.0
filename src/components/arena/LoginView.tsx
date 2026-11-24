@@ -36,7 +36,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     }
 
     setSubmitting(true);
-    const res = loginTeam(cleanCode, cleanAccess);
+    const res = await loginTeam(cleanCode, cleanAccess);
     setSubmitting(false);
 
     if (!res.success) {
@@ -49,19 +49,9 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     onLoginSuccess?.();
   };
 
-  const handleQuickConnect = async (code: string, pass: string) => {
+  const handleSelectTeam = (code: string) => {
     setTeamCode(code);
-    setAccessCode(pass);
     setErrorMessage(null);
-
-    const res = loginTeam(code, pass);
-    if (res.success) {
-      // Attempt Fullscreen directly on user tap
-      await enterFullscreen().catch(() => {});
-      onLoginSuccess?.();
-    } else {
-      setErrorMessage(res.error || 'Quick connect failed.');
-    }
   };
 
   // 4 most common quick test teams
@@ -109,7 +99,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
             <Input
               label="Access Code"
               type="password"
-              placeholder="e.g. Arena2026!T01"
+              placeholder="Enter designated team passcode"
               value={accessCode}
               onChange={(e) => setAccessCode(e.target.value)}
               leadingIcon={<KeyRound className="w-4 h-4" />}
@@ -130,14 +120,14 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
           </Button>
         </form>
 
-        {/* Quick Connect Test Credentials */}
+        {/* Quick Team Selection (Omit passwords) */}
         <div className="pt-4 border-t border-arena-border/80 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-mono uppercase tracking-wider text-arena-muted flex items-center gap-1">
               <Sparkles className="w-3 h-3 text-electric-cyan" />
-              <span>Quick-Connect Test Badges</span>
+              <span>Select Registered Team</span>
             </span>
-            <span className="text-[9px] font-mono text-arena-muted">Tap to Launch</span>
+            <span className="text-[9px] font-mono text-arena-muted">Tap to Select Code</span>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -145,7 +135,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
               <button
                 key={t.id}
                 type="button"
-                onClick={() => handleQuickConnect(t.teamCode, t.accessCode)}
+                onClick={() => handleSelectTeam(t.teamCode)}
                 className="p-2.5 text-left bg-arena-panel hover:bg-arena-hover active:scale-[0.98] border border-arena-border hover:border-electric-cyan/50 rounded-xl transition-all"
               >
                 <div className="flex items-center justify-between">

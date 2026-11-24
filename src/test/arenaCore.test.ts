@@ -3,6 +3,7 @@ import { AnswerValidator } from '../services/answerEngine';
 import { calculateLeaderboard } from '../services/leaderboardEngine';
 import { StorageService } from '../services/storageService';
 import { INITIAL_TEAMS, INITIAL_LOCATIONS, INITIAL_RIDDLES, INITIAL_EVENT_CONFIG } from '../data/seedData';
+import { MASTER_LOCATIONS } from './fixtures/masterLocations';
 import type { Team, TeamRoundProgress, AntiCheatIncident, FullGameBackup } from '../types';
 
 let passedTests = 0;
@@ -98,8 +99,8 @@ console.log('\n--- 3. Testing Checkpoint QR Verification ---');
 
 const team1Id = INITIAL_TEAMS[0]!.id;
 const team1Round1Route = routeResult.matrix.find((m) => m.teamId === team1Id && m.roundNumber === 1)!;
-const assignedLoc = INITIAL_LOCATIONS.find((l) => l.id === team1Round1Route.locationId)!;
-const otherLoc = INITIAL_LOCATIONS.find((l) => l.id !== team1Round1Route.locationId)!;
+const assignedLoc = MASTER_LOCATIONS.find((l) => l.id === team1Round1Route.locationId)!;
+const otherLoc = MASTER_LOCATIONS.find((l) => l.id !== team1Round1Route.locationId)!;
 
 assert(assignedLoc.qrToken.length === 10, 'Assigned location token must be a 10-digit string');
 
@@ -114,6 +115,11 @@ assert(!isWrongLocToken, 'Scanned token from another station is rejected as wron
 // Malformed token format
 assert(!/^\d{10}$/.test('abc123'), 'Rejects non-numeric/invalid length tokens');
 assert(/^\d{10}$/.test(assignedLoc.qrToken), 'Validates 10-digit numeric token pattern');
+
+// Verify client-side location seed data has stripped secrets
+INITIAL_LOCATIONS.forEach((loc) => {
+  assert(loc.qrToken === '', `Client location ${loc.id} has empty qrToken (zero QR secrets leaked)`);
+});
 
 // ----------------------------------------------------
 // TEST 4: Timer & Grace Period Logic
@@ -151,7 +157,7 @@ const isExpired = simulatedTimeExpired >= new Date(testProgress.graceDeadlineAt)
 assert(isExpired === true, 'Timer correctly detects hard timeout after grace period elapsed');
 
 // ----------------------------------------------------
-// TEST 5: Anti-Cheat Deterrence & Strikes
+// TEST 5: Anti-Cheat Deterrence & 4th-Violation Elimination
 // ----------------------------------------------------
 console.log('\n--- 5. Testing Anti-Cheat Deterrence & Disqualification ---');
 
@@ -159,28 +165,32 @@ const dummyTeam: Team = {
   id: 'strike-team',
   teamCode: 'ST01',
   teamName: 'Strike Test Team',
-  accessCode: 'Arena2026!ST01',
+  accessCode: 'TeamPass!ST01',
   status: 'active',
   currentRound: 1,
   strikes: 0,
   createdAt: new Date().toISOString(),
 };
 
-// Apply strike 1
+// Apply violation 1 -> Warning 1
 dummyTeam.strikes += 1;
-assert(dummyTeam.strikes === 1 && dummyTeam.status === 'active', 'Strike 1 records warning without disqualification');
+assert(dummyTeam.strikes === 1 && dummyTeam.status === 'active', 'Violation 1 records warning 1 without disqualification');
 
-// Apply strike 2
+// Apply violation 2 -> Warning 2
 dummyTeam.strikes += 1;
-assert(dummyTeam.strikes === 2 && dummyTeam.status === 'active', 'Strike 2 records final warning without disqualification');
+assert(dummyTeam.strikes === 2 && dummyTeam.status === 'active', 'Violation 2 records warning 2 without disqualification');
 
-// Apply strike 3 -> Elimination
+// Apply violation 3 -> Warning 3 (Final Warning)
 dummyTeam.strikes += 1;
-if (dummyTeam.strikes >= 3) {
+assert(dummyTeam.strikes === 3 && dummyTeam.status === 'active', 'Violation 3 records final warning without disqualification');
+
+// Apply violation 4 -> Automatic Elimination
+dummyTeam.strikes += 1;
+if (dummyTeam.strikes >= 4) {
   dummyTeam.status = 'eliminated';
-  dummyTeam.eliminationReason = 'Disqualified: Exceeded 3 Anti-Cheat Strikes';
+  dummyTeam.eliminationReason = 'Disqualified: Accumulated 4 anti-cheat violations (Automatic Elimination)';
 }
-assert(dummyTeam.strikes === 3 && dummyTeam.status === 'eliminated', 'Strike 3 triggers automatic elimination/disqualification');
+assert(dummyTeam.strikes === 4 && dummyTeam.status === 'eliminated', 'Violation 4 triggers automatic elimination/disqualification');
 
 // ----------------------------------------------------
 // TEST 6: Authoritative Leaderboard Ranking

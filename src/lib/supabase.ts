@@ -46,7 +46,7 @@ export interface SupabaseConnectionStatus {
   isConfigured: boolean;
   isConnected: boolean;
   latencyMs: number | null;
-  mode: 'supabase' | 'local_storage';
+  mode: 'connected' | 'disconnected' | 'unconfigured';
   url: string | null;
   message: string;
   error?: string;
@@ -63,9 +63,10 @@ export async function checkSupabaseConnection(): Promise<SupabaseConnectionStatu
       isConfigured: false,
       isConnected: false,
       latencyMs: null,
-      mode: 'local_storage',
+      mode: 'unconfigured',
       url: supabaseUrl || null,
-      message: 'Supabase credentials not configured. Operating in Local Storage mode.',
+      message: 'Supabase credentials not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY in .env.local or environment secrets.',
+      error: 'CONFIGURATION_MISSING',
     };
   }
 
@@ -81,7 +82,7 @@ export async function checkSupabaseConnection(): Promise<SupabaseConnectionStatu
         isConfigured: true,
         isConnected: false,
         latencyMs,
-        mode: 'local_storage',
+        mode: 'disconnected',
         url: supabaseUrl || null,
         message: `Supabase Auth responded with an error: ${error.message}`,
         error: error.message,
@@ -92,7 +93,7 @@ export async function checkSupabaseConnection(): Promise<SupabaseConnectionStatu
       isConfigured: true,
       isConnected: true,
       latencyMs,
-      mode: 'supabase',
+      mode: 'connected',
       url: supabaseUrl || null,
       message: `Connected to Supabase endpoint (${latencyMs}ms)`,
     };
@@ -103,9 +104,9 @@ export async function checkSupabaseConnection(): Promise<SupabaseConnectionStatu
       isConfigured: true,
       isConnected: false,
       latencyMs,
-      mode: 'local_storage',
+      mode: 'disconnected',
       url: supabaseUrl || null,
-      message: `Cannot reach Supabase endpoint: ${errorMessage}`,
+      message: `Cannot reach Supabase endpoint at ${supabaseUrl}: ${errorMessage}`,
       error: errorMessage,
     };
   }

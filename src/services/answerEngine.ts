@@ -1,19 +1,23 @@
+import type { ThreePartAnswers, ThreePartSubmission, ThreePartResult } from '../types';
+
 export interface AnswerValidationOptions {
-  acceptedAnswers: string[];
+  acceptedAnswers?: string[];
   caseSensitive?: boolean;
   normalizeWhitespace?: boolean;
   matchType?: 'exact' | 'numeric' | 'contains';
   options?: string[]; // Optional 4 MCQ options
+  threePartAnswers?: ThreePartAnswers;
 }
 
 export interface AnswerValidationResult {
   isCorrect: boolean;
   feedback: string;
+  partResults?: ThreePartResult;
 }
 
 export class AnswerValidator {
   public static normalize(value: string, caseSensitive = false, normalizeWhitespace = true): string {
-    let result = value;
+    let result = value || '';
     if (normalizeWhitespace) {
       result = result.trim().replace(/\s+/g, ' ');
     } else {
@@ -23,6 +27,51 @@ export class AnswerValidator {
       result = result.toLowerCase();
     }
     return result;
+  }
+
+  public static validateThreePart(
+    submitted: ThreePartSubmission | string,
+    threePartAnswers: ThreePartAnswers,
+    caseSensitive = false,
+    normalizeWhitespace = true
+  ): AnswerValidationResult {
+    let subObj: ThreePartSubmission;
+    if (typeof submitted === 'string') {
+      try {
+        subObj = JSON.parse(submitted);
+      } catch {
+        subObj = { partA: submitted, partB: '', partC: '' };
+      }
+    } else {
+      subObj = submitted;
+    }
+
+    const normA = this.normalize(subObj.partA || '', caseSensitive, normalizeWhitespace);
+    const normB = this.normalize(subObj.partB || '', caseSensitive, normalizeWhitespace);
+    const normC = this.normalize(subObj.partC || '', caseSensitive, normalizeWhitespace);
+
+    const checkPart = (val: string, answers: string[] = []): boolean => {
+      if (!val) return false;
+      return answers.some((ans) => this.normalize(ans, caseSensitive, normalizeWhitespace) === val);
+    };
+
+    const isCorrectA = checkPart(normA, threePartAnswers.partA);
+    const isCorrectB = checkPart(normB, threePartAnswers.partB);
+    const isCorrectC = checkPart(normC, threePartAnswers.partC);
+
+    const allCorrect = isCorrectA && isCorrectB && isCorrectC;
+
+    return {
+      isCorrect: allCorrect,
+      feedback: allCorrect
+        ? '✓ All three parts verified correct! Clue unlocked.'
+        : 'Some parts are incorrect. Review the highlighted fields and retry.',
+      partResults: {
+        partA: { correct: isCorrectA },
+        partB: { correct: isCorrectB },
+        partC: { correct: isCorrectC },
+      },
+    };
   }
 
   public static validate(submitted: string, options: AnswerValidationOptions): AnswerValidationResult {
@@ -39,7 +88,12 @@ export class AnswerValidator {
       normalizeWhitespace = true,
       matchType = 'exact',
       options: mcqOptions,
+      threePartAnswers,
     } = options;
+
+    if (threePartAnswers) {
+      return this.validateThreePart(submitted, threePartAnswers, caseSensitive, normalizeWhitespace);
+    }
 
     if (!acceptedAnswers || acceptedAnswers.length === 0) {
       return {
@@ -101,4 +155,3 @@ export class AnswerValidator {
     };
   }
 }
-

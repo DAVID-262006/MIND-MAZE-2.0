@@ -7,7 +7,7 @@ import type { Riddle, SupportedLanguage } from '../../types';
 export interface CodingPuzzleViewProps {
   puzzle: Riddle;
   onSolved: () => void;
-  onSubmitAnswer: (answer: string) => { isCorrect: boolean; feedback: string };
+  onSubmitAnswer: (answer: string) => Promise<{ isCorrect: boolean; feedback: string }> | { isCorrect: boolean; feedback: string };
   isSolved?: boolean;
 }
 
@@ -39,26 +39,34 @@ export function CodingPuzzleView({
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!answer.trim() || isSolved) return;
+    if (!answer.trim() || isSolved || submitting) return;
 
     setSubmitting(true);
     setFeedback(null);
 
-    const res = onSubmitAnswer(answer);
-    setSubmitting(false);
+    try {
+      const res = await onSubmitAnswer(answer);
+      setSubmitting(false);
 
-    if (res.isCorrect) {
-      setFeedback({
-        isSuccess: true,
-        message: '✓ Verified Correct! Proceed to scan the station QR code.',
-      });
-      onSolved();
-    } else {
+      if (res.isCorrect) {
+        setFeedback({
+          isSuccess: true,
+          message: '✓ Verified Correct! Proceed to scan the station QR code.',
+        });
+        onSolved();
+      } else {
+        setFeedback({
+          isSuccess: false,
+          message: res.feedback || 'Incorrect code output. Trace the logic and try again.',
+        });
+      }
+    } catch (err) {
+      setSubmitting(false);
       setFeedback({
         isSuccess: false,
-        message: res.feedback || 'Incorrect output. Review the sample cases and try again.',
+        message: (err as Error).message || 'Submission error. Please try again.',
       });
     }
   };
@@ -78,7 +86,7 @@ export function CodingPuzzleView({
           </h3>
         </div>
         <span className="text-[10px] font-mono font-bold uppercase bg-electric-cyan/10 border border-electric-cyan/30 text-electric-cyan px-2 py-0.5 rounded shrink-0">
-          ALGORITHM
+          {puzzle.puzzleType === 'CODE_BASED' ? 'CODE CHALLENGE' : 'ALGORITHM'}
         </span>
       </div>
 
@@ -86,6 +94,36 @@ export function CodingPuzzleView({
       <div className="text-xs text-arena-muted space-y-2 leading-relaxed">
         <p className="whitespace-pre-wrap">{puzzle.descriptionMd}</p>
       </div>
+
+      {/* Code Snippet Block (if provided in puzzle definition) */}
+      {puzzle.codeSnippet && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono font-bold uppercase text-electric-cyan tracking-wider flex items-center gap-1.5">
+              <Code2 className="w-3.5 h-3.5" />
+              <span>Problem Code ({puzzle.codeLanguage || 'python'})</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                if (navigator?.clipboard?.writeText) {
+                  navigator.clipboard.writeText(puzzle.codeSnippet || '');
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }
+              }}
+              className="text-[10px] font-mono text-arena-muted hover:text-white flex items-center gap-1 p-1 rounded"
+              title="Copy snippet"
+            >
+              {copied ? <Check className="w-3 h-3 text-electric-emerald" /> : <Copy className="w-3 h-3" />}
+              <span>{copied ? 'Copied' : 'Copy'}</span>
+            </button>
+          </div>
+          <pre className="bg-arena-bg border border-arena-border p-3 rounded-xl text-xs font-mono text-electric-cyan/90 overflow-x-auto max-h-56 leading-relaxed">
+            <code>{puzzle.codeSnippet}</code>
+          </pre>
+        </div>
+      )}
 
       {/* Sample Cases Compact Card */}
       {puzzle.sampleCases && puzzle.sampleCases.length > 0 && (

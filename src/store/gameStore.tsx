@@ -16,6 +16,9 @@ import { StorageService } from '../services/storageService';
 import { generateBalancedRoutes } from '../services/routeEngine';
 import { AnswerValidator, type AnswerValidationResult } from '../services/answerEngine';
 import { calculateLeaderboard } from '../services/leaderboardEngine';
+import { ViolationManager } from '../services/violationManager';
+import { supabase } from '../lib/supabase';
+import { SupabaseService } from '../services/supabaseService';
 
 interface GameContextType {
   config: GameEventConfig;
@@ -31,33 +34,35 @@ interface GameContextType {
   stationOccupancies: StationOccupancy[];
 
   // Event controls
-  startEvent: () => void;
-  pauseEvent: () => void;
-  resumeEvent: () => void;
-  endEvent: () => void;
+  startEvent: () => Promise<void> | void;
+  pauseEvent: () => Promise<void> | void;
+  resumeEvent: () => Promise<void> | void;
+  endEvent: () => Promise<void> | void;
   resetAllGameData: () => void;
 
   // Admin controls
-  loginAdmin: (password: string) => boolean;
-  logoutAdmin: () => void;
+  loginAdmin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logoutAdmin: () => Promise<void> | void;
   createTeam: (name: string, code: string, accessCode?: string) => { success: boolean; error?: string };
   updateTeam: (id: string, updates: Partial<Team>) => void;
   deleteTeam: (id: string) => void;
-  eliminateTeam: (id: string, reason: string) => void;
-  reinstateTeam: (id: string) => void;
+  eliminateTeam: (id: string, reason: string) => Promise<void> | void;
+  reinstateTeam: (id: string) => Promise<void> | void;
   updateLocation: (id: number, updates: Partial<LocationCheckpoint>) => void;
   regenerateLocationToken: (id: number) => string;
   saveRiddle: (riddle: Riddle) => void;
+  deleteRiddle: (id: string) => void;
+  updateConfig: (updates: Partial<GameEventConfig>) => void;
   regenerateRoutes: () => { success: boolean; message: string };
   lockRoutes: () => void;
 
   // Player actions
-  loginTeam: (teamCode: string, accessCode: string) => { success: boolean; error?: string; team?: Team };
+  loginTeam: (teamCode: string, accessCode: string) => Promise<{ success: boolean; error?: string; team?: Team }> | { success: boolean; error?: string; team?: Team };
   logoutTeam: () => void;
   getTeamProgress: (teamId: string, roundNumber: number) => TeamRoundProgress | undefined;
   getTeamAssignedLocation: (teamId: string, roundNumber: number) => LocationCheckpoint | undefined;
-  submitAnswer: (teamId: string, roundNumber: number, answer: string) => AnswerValidationResult;
-  verifyQrToken: (teamId: string, roundNumber: number, scannedToken: string) => { success: boolean; message: string; isCompleted?: boolean };
+  submitAnswer: (teamId: string, roundNumber: number, answer: string) => Promise<AnswerValidationResult> | AnswerValidationResult;
+  verifyQrToken: (teamId: string, roundNumber: number, scannedToken: string) => Promise<{ success: boolean; message: string; isCompleted?: boolean }> | { success: boolean; message: string; isCompleted?: boolean };
   recordViolation: (teamId: string, type: ViolationType, metadata?: Record<string, unknown>) => { strikeNumber: number; eliminated: boolean; message: string };
   handleTimerExpiry: (teamId: string, roundNumber: number) => void;
 
@@ -130,6 +135,220 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     StorageService.setAdminAuth(isAdminAuthenticated);
   }, [isAdminAuthenticated]);
 
+  // Auth state listener & session restoration for Supabase Admin
+  useEffect(() => {
+    if (!SupabaseService.isConfigured() || !supabase) return;
+
+    // Restore existing admin session if valid in admin_profiles
+    SupabaseService.checkAdminSession().then(({ isAuthenticated }) => {
+      setIsAdminAuthenticated(isAuthenticated);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        const { isAuthenticated } = await SupabaseService.checkAdminSession();
+        setIsAdminAuthenticated(isAuthenticated);
+      } else {
+        setIsAdminAuthenticated(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Initial hydration from Supabase if configured
+  useEffect(() => {
+    if (!SupabaseService.isConfigured()) return;
+
+    // 1. Fetch public event config
+    SupabaseService.fetchPublicEventStatus().then((publicConfig) => {
+      if (publicConfig) {
+        setConfig((prev) => ({ ...prev, ...publicConfig }));
+      }
+    }).catch((err) => console.warn('[Supabase] fetchPublicEventStatus failed:', err));
+
+    // 2. Fetch public locations
+    SupabaseService.fetchPublicLocations().then((publicLocs) => {
+      if (publicLocs && publicLocs.length > 0) {
+        setLocations((prev) => {
+          return publicLocs.map((pl) => {
+            const existing = prev.find((l) => l.id === pl.id);
+            return { ...existing, ...pl };
+          });
+        });
+      }
+    }).catch((err) => console.warn('[Supabase] fetchPublicLocations failed:', err));
+
+    // 3. Hydrate active team session if stored in sessionStorage
+    const storedSessionToken = sessionStorage.getItem('mm2_session_token');
+    const storedTeamId = sessionStorage.getItem('mm2_team_id') || activeTeamId;
+    if (storedTeamId && storedSessionToken) {
+      SupabaseService.getTeamState(storedTeamId, storedSessionToken).then((stateRes) => {
+        const teamState = stateRes.data;
+        if (teamState?.team) {
+          const st = teamState.team;
+          setTeams((prev) => {
+            const exists = prev.some((t) => t.id === st.id);
+            const mappedTeam: Team = {
+              id: st.id,
+              teamCode: st.team_code,
+              teamName: st.team_name,
+              status: (st.status as Team['status']) || 'active',
+              currentRound: st.current_round || 1,
+              strikes: st.total_strikes || 0,
+              createdAt: new Date().toISOString(),
+              startedAt: st.started_at || undefined,
+              completedAt: st.completed_at || undefined,
+              totalTimeMs: st.total_time_ms || undefined,
+            };
+            if (exists) {
+              return prev.map((t) => (t.id === st.id ? { ...t, ...mappedTeam } : t));
+            }
+            return [...prev, mappedTeam];
+          });
+          setActiveTeamId(st.id);
+        }
+        if (teamState?.current_progress) {
+          const cp = teamState.current_progress;
+          const mappedProg: TeamRoundProgress = {
+            teamId: storedTeamId,
+            roundNumber: cp.round_number,
+            puzzleSolved: cp.puzzle_solved,
+            puzzleSolvedAt: cp.puzzle_solved_at,
+            qrScanned: cp.qr_scanned,
+            qrScannedAt: cp.qr_scanned_at,
+            attemptsCount: cp.attempts_count,
+            roundStartedAt: cp.round_started_at,
+            deadlineAt: cp.deadline_at,
+            graceDeadlineAt: cp.grace_deadline_at,
+          };
+          setProgress((prev) => {
+            const other = prev.filter((p) => !(p.teamId === storedTeamId && p.roundNumber === cp.round_number));
+            return [...other, mappedProg];
+          });
+        }
+      }).catch((err) => console.warn('[Supabase] getTeamState failed:', err));
+    }
+  }, [activeTeamId]);
+
+  // Hydrate admin data when admin authenticated and Supabase configured
+  useEffect(() => {
+    if (!isAdminAuthenticated || !SupabaseService.isConfigured()) return;
+
+    Promise.all([
+      SupabaseService.fetchAdminTeams(),
+      SupabaseService.fetchAdminLocations(),
+      SupabaseService.fetchAdminPuzzles(),
+      SupabaseService.fetchRoutes(),
+      SupabaseService.fetchProgress(),
+      SupabaseService.fetchIncidents(),
+    ]).then(([adminTeams, adminLocs, adminPuzzles, adminRoutes, adminProg, adminInc]) => {
+      if (adminTeams && adminTeams.length > 0) setTeams(adminTeams);
+      if (adminLocs && adminLocs.length > 0) setLocations(adminLocs);
+      if (adminPuzzles && adminPuzzles.length > 0) setRiddles(adminPuzzles);
+      if (adminRoutes && adminRoutes.length > 0) setRoutes(adminRoutes);
+      if (adminProg && adminProg.length > 0) setProgress(adminProg);
+      if (adminInc && adminInc.length > 0) setIncidents(adminInc);
+    }).catch((err) => console.warn('[Supabase] Admin data hydration failed:', err));
+  }, [isAdminAuthenticated]);
+
+  // Realtime subscription
+  useEffect(() => {
+    if (!SupabaseService.isConfigured() || !supabase) return;
+
+    const channel = supabase
+      .channel('mm2_live_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'event_settings' },
+        () => {
+          SupabaseService.fetchPublicEventStatus().then((status) => {
+            if (status) setConfig((prev) => ({ ...prev, ...status }));
+          }).catch(() => {});
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'teams' },
+        (payload) => {
+          if ((payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') && payload.new) {
+            const raw = payload.new as Record<string, unknown>;
+            setTeams((prev) =>
+              prev.map((t) =>
+                t.id === raw.id
+                  ? {
+                      ...t,
+                      teamCode: (raw.team_code as string) || t.teamCode,
+                      teamName: (raw.team_name as string) || t.teamName,
+                      currentRound: typeof raw.current_round === 'number' ? raw.current_round : t.currentRound,
+                      strikes: typeof raw.strikes === 'number' ? raw.strikes : t.strikes,
+                      status: (raw.status as any) || t.status,
+                      eliminationReason: raw.elimination_reason !== undefined ? (raw.elimination_reason as string | null) : t.eliminationReason,
+                      completedAt: raw.completed_at !== undefined ? (raw.completed_at as string | null) : t.completedAt,
+                    }
+                  : t
+              )
+            );
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'team_progress' },
+        (payload) => {
+          if (payload.new) {
+            const raw = payload.new as Record<string, unknown>;
+            const mapped: TeamRoundProgress = {
+              teamId: raw.team_id as string,
+              roundNumber: raw.round_number as number,
+              puzzleSolved: Boolean(raw.puzzle_solved),
+              puzzleSolvedAt: (raw.puzzle_solved_at as string) || null,
+              qrScanned: Boolean(raw.qr_scanned),
+              qrScannedAt: (raw.qr_scanned_at as string) || null,
+              attemptsCount: (raw.attempts_count as number) || 0,
+              roundStartedAt: raw.round_started_at as string,
+              deadlineAt: raw.deadline_at as string,
+              graceDeadlineAt: raw.grace_deadline_at as string,
+              timedOut: Boolean(raw.timed_out),
+              completedAt: (raw.completed_at as string) || null,
+            };
+
+            setProgress((prev) => {
+              const idx = prev.findIndex(
+                (item) => item.teamId === mapped.teamId && item.roundNumber === mapped.roundNumber
+              );
+              if (idx >= 0) {
+                const copy = [...prev];
+                copy[idx] = { ...copy[idx]!, ...mapped };
+                return copy;
+              }
+              return [...prev, mapped];
+            });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'audit_logs' },
+        () => {
+          if (isAdminAuthenticated) {
+            SupabaseService.fetchIncidents().then((inc) => {
+              if (inc) setIncidents(inc);
+            }).catch(() => {});
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (supabase) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [isAdminAuthenticated]);
+
   // Active Team derived
   const activeTeam = useMemo(() => {
     if (!activeTeamId) return null;
@@ -193,12 +412,19 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // EVENT LIFECYCLE CONTROLS
   // ==========================================
 
-  const startEvent = useCallback(() => {
+  const startEvent = useCallback(async () => {
     const now = new Date().toISOString();
     const durationSeconds = config.roundDurationSeconds || 300;
     const graceSeconds = config.gracePeriodSeconds || 30;
 
-    // Lock routes
+    if (SupabaseService.isConfigured()) {
+      const res = await SupabaseService.startEvent();
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to start event on Supabase backend.');
+      }
+    }
+
+    // Lock routes and update local state
     setConfig((prev) => ({
       ...prev,
       status: 'live',
@@ -236,7 +462,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     );
   }, [config.roundDurationSeconds, config.gracePeriodSeconds, teams]);
 
-  const pauseEvent = useCallback(() => {
+  const pauseEvent = useCallback(async () => {
+    if (SupabaseService.isConfigured()) {
+      const res = await SupabaseService.pauseEvent();
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to pause event on Supabase backend.');
+      }
+    }
+
     setConfig((prev) => ({
       ...prev,
       status: 'paused',
@@ -244,9 +477,16 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const resumeEvent = useCallback(() => {
+  const resumeEvent = useCallback(async () => {
     const pauseStarted = config.pauseStartedAt;
     const pauseDuration = pauseStarted ? Math.max(0, Date.now() - pauseStarted) : 0;
+
+    if (SupabaseService.isConfigured()) {
+      const res = await SupabaseService.resumeEvent();
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to resume event on Supabase backend.');
+      }
+    }
 
     setConfig((prev) => ({
       ...prev,
@@ -274,7 +514,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
   }, [config.pauseStartedAt]);
 
-  const endEvent = useCallback(() => {
+  const endEvent = useCallback(async () => {
+    if (SupabaseService.isConfigured()) {
+      const res = await SupabaseService.endEvent();
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to end event on Supabase backend.');
+      }
+    }
+
     setConfig((prev) => ({
       ...prev,
       status: 'finished',
@@ -299,16 +546,28 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // ADMIN ACTIONS
   // ==========================================
 
-  const loginAdmin = useCallback((password: string): boolean => {
-    // Authoritative passphrase: arena2026
-    if (password.trim() === 'arena2026') {
-      setIsAdminAuthenticated(true);
-      return true;
+  const loginAdmin = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    if (!SupabaseService.isConfigured()) {
+      return {
+        success: false,
+        error: 'Supabase backend is not configured. Please supply valid Supabase credentials in .env.local.',
+      };
     }
-    return false;
+
+    const res = await SupabaseService.adminLogin(email, password);
+    if (res.success) {
+      setIsAdminAuthenticated(true);
+      return { success: true };
+    } else {
+      setIsAdminAuthenticated(false);
+      return { success: false, error: res.error || 'Authentication failed.' };
+    }
   }, []);
 
-  const logoutAdmin = useCallback(() => {
+  const logoutAdmin = useCallback(async () => {
+    if (SupabaseService.isConfigured()) {
+      await SupabaseService.adminLogout();
+    }
     setIsAdminAuthenticated(false);
   }, []);
 
@@ -327,7 +586,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       id: `team-${Date.now().toString().slice(-6)}`,
       teamCode: cleanCode,
       teamName: cleanName,
-      accessCode: accessCode?.trim() || `Arena2026!${cleanCode}`,
+      accessCode: accessCode?.trim() || `TeamPass!${cleanCode}`,
       status: config.status === 'live' ? 'active' : 'ready',
       currentRound: 1,
       strikes: 0,
@@ -351,7 +610,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeTeamId]);
 
-  const eliminateTeam = useCallback((id: string, reason: string) => {
+  const eliminateTeam = useCallback(async (id: string, reason: string) => {
+    if (SupabaseService.isConfigured()) {
+      const res = await SupabaseService.eliminateTeam(id, reason);
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to eliminate team on Supabase backend.');
+      }
+    }
     setTeams((prev) =>
       prev.map((t) =>
         t.id === id ? { ...t, status: 'eliminated', eliminationReason: reason } : t
@@ -359,7 +624,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     );
   }, []);
 
-  const reinstateTeam = useCallback((id: string) => {
+  const reinstateTeam = useCallback(async (id: string) => {
+    if (SupabaseService.isConfigured()) {
+      const res = await SupabaseService.reinstateTeam(id);
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to reinstate team on Supabase backend.');
+      }
+    }
     setTeams((prev) =>
       prev.map((t) =>
         t.id === id ? { ...t, status: 'active', eliminationReason: null, strikes: 0 } : t
@@ -380,6 +651,17 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setLocations((prev) =>
       prev.map((l) => (l.id === id ? { ...l, qrToken: newToken } : l))
     );
+
+    if (SupabaseService.isConfigured()) {
+      SupabaseService.adminRegenerateLocationToken(id).then((tokenRes) => {
+        if (tokenRes.data?.qrToken) {
+          setLocations((prev) => prev.map((l) => (l.id === id ? { ...l, qrToken: tokenRes.data!.qrToken } : l)));
+        }
+      }).catch((err) => {
+        console.warn('[Supabase] adminRegenerateLocationToken error:', err);
+      });
+    }
+
     return newToken;
   }, [locations]);
 
@@ -393,6 +675,20 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
       return [...prev, riddle];
     });
+
+    if (SupabaseService.isConfigured()) {
+      SupabaseService.adminSavePuzzle(riddle).catch((err) => {
+        console.warn('[Supabase] adminSavePuzzle error:', err);
+      });
+    }
+  }, []);
+
+  const deleteRiddle = useCallback((id: string) => {
+    setRiddles((prev) => prev.filter((r) => r.id !== id));
+  }, []);
+
+  const updateConfig = useCallback((updates: Partial<GameEventConfig>) => {
+    setConfig((prev) => ({ ...prev, ...updates }));
   }, []);
 
   const regenerateRoutes = useCallback((): { success: boolean; message: string } => {
@@ -419,6 +715,19 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
 
       setRoutes(res.matrix);
+
+      if (SupabaseService.isConfigured()) {
+        SupabaseService.generateTeamRoutes().then((rpcRes) => {
+          if (rpcRes.success) {
+            SupabaseService.fetchRoutes().then((freshRoutes) => {
+              if (freshRoutes && freshRoutes.length > 0) setRoutes(freshRoutes);
+            });
+          }
+        }).catch((err) => {
+          console.warn('[Supabase] generateTeamRoutes error:', err);
+        });
+      }
+
       return { success: true, message: 'Generated and verified 100% collision-free Latin Hypercube routes.' };
     } catch (err) {
       return { success: false, message: (err as Error).message };
@@ -433,10 +742,96 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // PLAYER ACTIONS
   // ==========================================
 
-  const loginTeam = useCallback((teamCode: string, accessCode: string) => {
+  const loginTeam = useCallback(async (teamCode: string, accessCode: string) => {
     const cleanCode = teamCode.trim().toUpperCase();
     const cleanAccess = accessCode.trim();
 
+    if (SupabaseService.isConfigured()) {
+      const rpcRes = await SupabaseService.loginTeam(cleanCode, cleanAccess);
+      if (rpcRes.error || !rpcRes.data || !rpcRes.data.success) {
+        return {
+          success: false,
+          error: rpcRes.error || rpcRes.data?.error || rpcRes.data?.message || 'Authentication failed. Please verify credentials.',
+        };
+      }
+
+      const teamData = rpcRes.data;
+      const sessionToken = teamData.session_token;
+      sessionStorage.setItem('mm2_session_token', sessionToken);
+      sessionStorage.setItem('mm2_team_id', teamData.team_id);
+      setActiveTeamId(teamData.team_id);
+
+      const mappedTeam: Team = {
+        id: teamData.team_id,
+        teamCode: teamData.team_code,
+        teamName: teamData.team_name,
+        status: (teamData.status as Team['status']) || 'active',
+        currentRound: teamData.current_round || 1,
+        strikes: 0,
+        createdAt: new Date().toISOString(),
+      };
+
+      setTeams((prev) => {
+        const exists = prev.some((t) => t.id === mappedTeam.id);
+        if (exists) {
+          return prev.map((t) => (t.id === mappedTeam.id ? { ...t, ...mappedTeam } : t));
+        }
+        return [...prev, mappedTeam];
+      });
+
+      // Hydrate authoritative team state
+      try {
+        const stateRes = await SupabaseService.getTeamState(teamData.team_id, sessionToken);
+        if (stateRes.data?.team) {
+          const st = stateRes.data.team;
+          setTeams((prev) =>
+            prev.map((t) =>
+              t.id === st.id
+                ? {
+                    ...t,
+                    currentRound: st.current_round,
+                    strikes: st.total_strikes,
+                    status: (st.status as Team['status']) || t.status,
+                    completedAt: st.completed_at || undefined,
+                    startedAt: st.started_at || undefined,
+                    totalTimeMs: st.total_time_ms || undefined,
+                  }
+                : t
+            )
+          );
+        }
+        if (stateRes.data?.current_progress) {
+          const cp = stateRes.data.current_progress;
+          const mappedProg: TeamRoundProgress = {
+            teamId: teamData.team_id,
+            roundNumber: cp.round_number,
+            puzzleSolved: cp.puzzle_solved,
+            puzzleSolvedAt: cp.puzzle_solved_at,
+            qrScanned: cp.qr_scanned,
+            qrScannedAt: cp.qr_scanned_at,
+            attemptsCount: cp.attempts_count,
+            roundStartedAt: cp.round_started_at,
+            deadlineAt: cp.deadline_at,
+            graceDeadlineAt: cp.grace_deadline_at,
+          };
+          setProgress((prev) => {
+            const idx = prev.findIndex((p) => p.teamId === mappedProg.teamId && p.roundNumber === mappedProg.roundNumber);
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = mappedProg;
+              return copy;
+            }
+            return [...prev, mappedProg];
+          });
+        }
+      } catch (e) {
+        console.warn('[Supabase] Hydrate team state error:', e);
+      }
+
+      return { success: true, team: mappedTeam };
+    }
+
+    // Local offline mode
     const team = teams.find((t) => t.teamCode.toUpperCase() === cleanCode);
     if (!team) {
       return { success: false, error: `Invalid Team ID "${cleanCode}".` };
@@ -480,6 +875,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, [teams, config.status, config.roundDurationSeconds, config.gracePeriodSeconds]);
 
   const logoutTeam = useCallback(() => {
+    sessionStorage.removeItem('mm2_session_token');
+    sessionStorage.removeItem('mm2_team_id');
     setActiveTeamId(null);
   }, []);
 
@@ -493,7 +890,50 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     return locations.find((l) => l.id === match.locationId);
   }, [routes, locations]);
 
-  const submitAnswer = useCallback((teamId: string, roundNumber: number, answer: string): AnswerValidationResult => {
+  const submitAnswer = useCallback(async (teamId: string, roundNumber: number, answer: string): Promise<AnswerValidationResult> => {
+    const targetTeam = teams.find((t) => t.id === teamId);
+    if (!targetTeam || targetTeam.status === 'eliminated') {
+      return { isCorrect: false, feedback: 'Submission rejected: Team has been eliminated.' };
+    }
+
+    if (SupabaseService.isConfigured()) {
+      const sessionToken = sessionStorage.getItem('mm2_session_token') || '';
+      const rpcRes = await SupabaseService.submitPuzzleAnswer(teamId, sessionToken, answer);
+      if (rpcRes.error || !rpcRes.data || !rpcRes.data.success) {
+        return {
+          isCorrect: false,
+          feedback: rpcRes.error || rpcRes.data?.message || 'Submission error.',
+        };
+      }
+
+      const isCorrect = Boolean(rpcRes.data.correct || rpcRes.data.puzzle_solved);
+      const now = new Date().toISOString();
+      const riddleClue = rpcRes.data.riddle || null;
+
+      setProgress((prev) => {
+        const idx = prev.findIndex((p) => p.teamId === teamId && p.roundNumber === roundNumber);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = {
+            ...copy[idx]!,
+            attemptsCount: rpcRes.data!.attempts_count || (copy[idx]!.attemptsCount + 1),
+            puzzleSolved: isCorrect ? true : copy[idx]!.puzzleSolved,
+            puzzleSolvedAt: isCorrect ? (copy[idx]!.puzzleSolvedAt || now) : copy[idx]!.puzzleSolvedAt,
+            riddleRevealed: isCorrect ? (riddleClue || copy[idx]!.riddleRevealed) : copy[idx]!.riddleRevealed,
+          };
+          return copy;
+        }
+        return prev;
+      });
+
+      return {
+        isCorrect,
+        feedback: rpcRes.data.message || (isCorrect ? '✓ Verified Correct!' : 'Incorrect answer. Try again.'),
+        partResults: rpcRes.data.part_results as any,
+      };
+    }
+
+    // Local offline fallback
     const riddle = riddles.find((r) => r.roundNumber === roundNumber);
     if (!riddle) {
       return { isCorrect: false, feedback: 'Riddle for this round not found.' };
@@ -504,9 +944,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       caseSensitive: riddle.caseSensitive,
       normalizeWhitespace: riddle.normalizeWhitespace,
       options: riddle.options,
+      threePartAnswers: riddle.threePartAnswers,
     });
 
     const now = new Date().toISOString();
+    const revealedClue = validation.isCorrect ? (riddle.riddleClue || riddle.descriptionMd) : null;
 
     setProgress((prev) => {
       const idx = prev.findIndex((p) => p.teamId === teamId && p.roundNumber === roundNumber);
@@ -517,6 +959,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           attemptsCount: current.attemptsCount + 1,
           puzzleSolved: validation.isCorrect ? true : current.puzzleSolved,
           puzzleSolvedAt: validation.isCorrect ? (current.puzzleSolvedAt || now) : current.puzzleSolvedAt,
+          riddleRevealed: validation.isCorrect ? (revealedClue || current.riddleRevealed) : current.riddleRevealed,
         };
         const copy = [...prev];
         copy[idx] = updated;
@@ -537,16 +980,99 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             roundStartedAt: new Date(nowEpoch).toISOString(),
             deadlineAt: new Date(nowEpoch + dur * 1000).toISOString(),
             graceDeadlineAt: new Date(nowEpoch + (dur + grace) * 1000).toISOString(),
+            riddleRevealed: revealedClue,
           },
         ];
       }
     });
 
     return validation;
-  }, [riddles, config.roundDurationSeconds, config.gracePeriodSeconds]);
+  }, [teams, riddles, config.roundDurationSeconds, config.gracePeriodSeconds]);
 
-  const verifyQrToken = useCallback((teamId: string, roundNumber: number, scannedToken: string) => {
+  const verifyQrToken = useCallback(async (teamId: string, roundNumber: number, scannedToken: string) => {
+    const targetTeam = teams.find((t) => t.id === teamId);
+    if (!targetTeam || targetTeam.status === 'eliminated') {
+      return { success: false, message: 'Action rejected: Team has been eliminated.' };
+    }
+
     const token = scannedToken.trim();
+
+    if (SupabaseService.isConfigured()) {
+      const sessionToken = sessionStorage.getItem('mm2_session_token') || '';
+      const rpcRes = await SupabaseService.verifyLocationQr(teamId, sessionToken, token);
+      if (rpcRes.error || !rpcRes.data || !rpcRes.data.success || !rpcRes.data.verified) {
+        return {
+          success: false,
+          message: rpcRes.error || rpcRes.data?.message || 'QR Verification failed.',
+        };
+      }
+
+      const now = new Date().toISOString();
+      const isChampionshipComplete = Boolean(rpcRes.data.is_game_finished || roundNumber >= 10);
+
+      setProgress((prev) => {
+        const idx = prev.findIndex((p) => p.teamId === teamId && p.roundNumber === roundNumber);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = {
+            ...copy[idx]!,
+            qrScanned: true,
+            qrScannedAt: now,
+            completedAt: now,
+          };
+          return copy;
+        }
+        return prev;
+      });
+
+      if (isChampionshipComplete) {
+        setTeams((prev) =>
+          prev.map((t) => (t.id === teamId ? { ...t, status: 'completed', completedAt: now } : t))
+        );
+        return {
+          success: true,
+          message: rpcRes.data.message || '✓ Final Checkpoint Verified! Championship Complete!',
+          isCompleted: true,
+        };
+      } else {
+        const nextRound = roundNumber + 1;
+        const nowEpoch = Date.now();
+        const dur = config.roundDurationSeconds || 300;
+        const grace = config.gracePeriodSeconds || 30;
+
+        setTeams((prev) =>
+          prev.map((t) => (t.id === teamId ? { ...t, currentRound: nextRound } : t))
+        );
+
+        setProgress((prev) => {
+          const exists = prev.some((p) => p.teamId === teamId && p.roundNumber === nextRound);
+          if (!exists) {
+            return [
+              ...prev,
+              {
+                teamId,
+                roundNumber: nextRound,
+                puzzleSolved: false,
+                qrScanned: false,
+                attemptsCount: 0,
+                roundStartedAt: new Date(nowEpoch).toISOString(),
+                deadlineAt: new Date(nowEpoch + dur * 1000).toISOString(),
+                graceDeadlineAt: new Date(nowEpoch + (dur + grace) * 1000).toISOString(),
+              },
+            ];
+          }
+          return prev;
+        });
+
+        return {
+          success: true,
+          message: rpcRes.data.message || `✓ Checkpoint Verified! Proceeding to Round ${nextRound}.`,
+          isCompleted: false,
+        };
+      }
+    }
+
+    // Local offline fallback
     const assignedLocation = getTeamAssignedLocation(teamId, roundNumber);
 
     if (!assignedLocation) {
@@ -626,29 +1152,22 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         isCompleted: false,
       };
     }
-  }, [getTeamAssignedLocation, locations, config.roundDurationSeconds, config.gracePeriodSeconds]);
+  }, [teams, getTeamAssignedLocation, locations, config.roundDurationSeconds, config.gracePeriodSeconds]);
 
   const recordViolation = useCallback((teamId: string, type: ViolationType, metadata?: Record<string, unknown>) => {
     const targetTeam = teams.find((t) => t.id === teamId);
     if (!targetTeam || targetTeam.status === 'eliminated' || targetTeam.status === 'completed') {
-      return { strikeNumber: targetTeam?.strikes || 0, eliminated: false, message: '' };
+      return {
+        strikeNumber: targetTeam?.strikes || 0,
+        eliminated: targetTeam?.status === 'eliminated' || false,
+        message: targetTeam?.status === 'eliminated' ? 'YOU HAVE BEEN ELIMINATED!' : '',
+      };
     }
 
-    const newStrikes = targetTeam.strikes + 1;
-    const eliminated = newStrikes >= 3;
-    const incident: AntiCheatIncident = {
-      id: `inc-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      teamId,
-      teamCode: targetTeam.teamCode,
-      teamName: targetTeam.teamName,
-      roundNumber: targetTeam.currentRound,
-      violationType: type,
-      strikeNumber: newStrikes,
-      timestamp: new Date().toISOString(),
-      metadata,
-      status: eliminated ? 'eliminated' : 'warning',
-      notes: metadata?.reason ? String(metadata.reason) : `Violation detected: ${type}`,
-    };
+    const evaluation = ViolationManager.evaluateViolation(targetTeam, type, metadata);
+    const newStrikes = evaluation.newStrikes;
+    const eliminated = evaluation.eliminated;
+    const incident = evaluation.incident;
 
     setIncidents((prev) => [incident, ...prev]);
 
@@ -660,7 +1179,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             strikes: newStrikes,
             status: eliminated ? 'eliminated' : t.status,
             eliminationReason: eliminated
-              ? `Disqualified: Exceeded 3 Anti-Cheat Strikes (last: ${type})`
+              ? `YOU HAVE BEEN ELIMINATED! Accumulated 4 anti-cheat violations (${evaluation.reasonText})`
               : t.eliminationReason,
           };
         }
@@ -668,12 +1187,26 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       })
     );
 
-    const message = eliminated
-      ? 'Disqualification: You have accumulated 3 anti-cheat strikes. Device inputs have been permanently locked.'
-      : `Warning (Strike ${newStrikes}/3): Leaving the game arena screen triggers anti-cheat deterrence strikes.`;
+    // Authoritative server-side sync via Supabase RPC
+    if (SupabaseService.isConfigured()) {
+      const sessionToken = sessionStorage.getItem('mm2_session_token') || '';
+      if (sessionToken) {
+        SupabaseService.reportTeamViolation(teamId, sessionToken, type, metadata).catch((err) => {
+          console.warn('[Supabase] reportTeamViolation error:', err);
+        });
+      } else if (isAdminAuthenticated) {
+        SupabaseService.adminRecordViolation(teamId, type, metadata).catch((err) => {
+          console.warn('[Supabase] adminRecordViolation error:', err);
+        });
+      }
+    }
 
-    return { strikeNumber: newStrikes, eliminated, message };
-  }, [teams]);
+    return {
+      strikeNumber: newStrikes,
+      eliminated,
+      message: evaluation.config.message,
+    };
+  }, [teams, isAdminAuthenticated]);
 
   const handleTimerExpiry = useCallback((teamId: string, roundNumber: number) => {
     const prog = progress.find((p) => p.teamId === teamId && p.roundNumber === roundNumber);
@@ -769,6 +1302,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     updateLocation,
     regenerateLocationToken,
     saveRiddle,
+    deleteRiddle,
+    updateConfig,
     regenerateRoutes,
     lockRoutes,
 

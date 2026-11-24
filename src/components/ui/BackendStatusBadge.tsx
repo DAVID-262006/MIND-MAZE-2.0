@@ -23,7 +23,7 @@ export function BackendStatusBadge({ className = '', compact = false }: BackendS
         isConfigured: false,
         isConnected: false,
         latencyMs: null,
-        mode: 'local_storage',
+        mode: 'unconfigured',
         url: null,
         message: 'Failed to inspect connection status',
       });

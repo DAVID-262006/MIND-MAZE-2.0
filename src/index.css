@@ -33,6 +33,11 @@ body {
 }
 
 /* Custom Sleek Scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1e2d4a #080b13;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
