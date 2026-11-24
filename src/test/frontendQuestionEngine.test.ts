@@ -190,3 +190,4 @@ console.log('✅ PASSED: fetchAdminPuzzles serves questions directly from fronte
 console.log('\n================================================================');
 console.log('ALL FRONTEND-ONLY QUESTION ENGINE TESTS PASSED! (36 / 36)');
 console.log('================================================================');
+

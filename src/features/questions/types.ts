@@ -82,3 +82,4 @@ export interface QuestionConfigPackage {
   locationRiddles: LocationRiddle[];
   signature?: string;
 }
+

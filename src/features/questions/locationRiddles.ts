@@ -98,3 +98,4 @@ Under the master arcade, the final seal of glory awaits.`,
     hint: 'Central covered arcade corridor connecting Tower 1 and Tower 2.',
   },
 ];
+

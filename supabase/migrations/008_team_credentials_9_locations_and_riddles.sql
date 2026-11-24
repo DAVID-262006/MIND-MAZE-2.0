@@ -122,6 +122,8 @@ ALTER TABLE public.puzzles ADD CONSTRAINT puzzles_round_number_check
 -- 4. RPC: admin_set_team_credentials
 -- Allows admin to create or update custom username and bcrypt password for a team
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_set_team_credentials(VARCHAR, UUID, VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_set_team_credentials;
 CREATE OR REPLACE FUNCTION public.admin_set_team_credentials(
     p_admin_token VARCHAR,
     p_team_id UUID,
@@ -242,6 +244,8 @@ $$;
 -- 5. RPC: admin_reset_team_password
 -- Allows admin to reset the password for an existing team and revoke active sessions
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_reset_team_password(VARCHAR, UUID, VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_reset_team_password;
 CREATE OR REPLACE FUNCTION public.admin_reset_team_password(
     p_admin_token VARCHAR,
     p_team_id UUID,
@@ -321,6 +325,8 @@ $$;
 -- 6. RPC: admin_batch_generate_team_credentials
 -- Batch generates credentials for all teams. Plaintext passwords returned ONCE.
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_batch_generate_team_credentials(VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_batch_generate_team_credentials;
 CREATE OR REPLACE FUNCTION public.admin_batch_generate_team_credentials(
     p_admin_token VARCHAR
 )
@@ -405,6 +411,9 @@ $$;
 -- -----------------------------------------------------------------------------
 -- 7. RPC: login_team (AUTHENTICATE VIA USERNAME & PASSWORD)
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.login_team(VARCHAR, VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.login_team(VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.login_team;
 CREATE OR REPLACE FUNCTION public.login_team(
     p_username VARCHAR,
     p_password VARCHAR,
