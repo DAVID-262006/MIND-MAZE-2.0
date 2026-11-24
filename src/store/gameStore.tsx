@@ -248,12 +248,16 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     const hydrateAdmin = () => {
       SupabaseService.fetchAdminDashboardData(adminToken).then((data) => {
-        if (data.teams && data.teams.length > 0) setTeams(data.teams);
-        if (data.locations && data.locations.length > 0) setLocations(data.locations);
-        if (data.puzzles && data.puzzles.length > 0) setRiddles(data.puzzles);
-        if (data.routes && data.routes.length > 0) setRoutes(data.routes);
-        if (data.progress && data.progress.length > 0) setProgress(data.progress);
-        if (data.incidents && data.incidents.length > 0) setIncidents(data.incidents);
+        if (!data.success) {
+          console.warn('[Supabase] Admin dashboard hydration rejected:', data.error);
+          return;
+        }
+        setTeams(data.teams ?? []);
+        setLocations(data.locations ?? []);
+        setRiddles(data.puzzles ?? []);
+        setRoutes(data.routes ?? []);
+        setProgress(data.progress ?? []);
+        setIncidents(data.incidents ?? []);
       }).catch((err) => console.warn('[Supabase] Admin data hydration failed:', err));
     };
 

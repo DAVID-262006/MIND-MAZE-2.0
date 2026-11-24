@@ -60,6 +60,13 @@ export class SupabaseService {
       const { data, error } = await supabase.rpc(procedureName, params);
 
       if (error) {
+        console.error(`[Supabase RPC Error] ${procedureName}:`, {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        });
+
         const isSchemaPending =
           error.code === '42883' ||
           error.code === '42P01' ||
@@ -518,7 +525,7 @@ export class SupabaseService {
         riddleClue: (l.riddle_clue as string) || '',
         capacity: Number(l.capacity || 2),
         active: Boolean(l.active),
-        qrToken: String(l.qr_token),
+        qrToken: '',
       }));
 
       const puzzles: Riddle[] = (d.puzzles || []).map((p) => ({

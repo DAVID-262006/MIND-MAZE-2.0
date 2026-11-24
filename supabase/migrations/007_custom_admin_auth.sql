@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS admin_users (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE admin_users
+    ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+
 ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE admin_users FROM PUBLIC, anon, authenticated;
 
@@ -384,7 +387,7 @@ DECLARE
     v_incidents JSONB;
     v_event_status JSONB;
 BEGIN
-    SELECT * INTO v_auth FROM verify_admin_token(p_admin_token);
+    SELECT * INTO v_auth FROM verify_admin_token(p_admin_token, 'admin');
     IF NOT v_auth.is_valid THEN
         RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Unauthorized: Valid administrator session token required.');
     END IF;
@@ -431,7 +434,6 @@ BEGIN
         'image_alt', p.image_alt,
         'three_part_questions', p.three_part_questions,
         'code_language', p.code_language,
-        'code_snippet', p.code_snippet,
         'is_active', p.is_active
     ) ORDER BY p.round_number), '[]'::jsonb)
     INTO v_puzzles FROM puzzles p;
