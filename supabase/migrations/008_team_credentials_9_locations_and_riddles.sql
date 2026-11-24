@@ -924,7 +924,76 @@ END;
 $$;
 
 -- -----------------------------------------------------------------------------
--- 13. REVOKE UNNECESSARY EXECUTION AND GRANT SPECIFIC ROLES
+-- 13. RPC: record_puzzle_solved (OPERATIONAL TRACKING ONLY, NO QUESTION SECRETS)
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.record_puzzle_solved(
+    p_session_token VARCHAR,
+    p_round_number INT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_team RECORD;
+    v_token_hash VARCHAR;
+    v_progress RECORD;
+BEGIN
+    IF p_session_token IS NULL OR p_session_token = '' THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Session token required.');
+    END IF;
+
+    v_token_hash := encode(extensions.digest(p_session_token, 'sha256'), 'hex');
+
+    -- Validate team session
+    SELECT * INTO v_team
+    FROM public.teams
+    WHERE active_session_token_hash = v_token_hash
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'error', 'INVALID_SESSION', 'message', 'Session expired or invalid.');
+    END IF;
+
+    IF v_team.status = 'eliminated' THEN
+        RETURN jsonb_build_object('success', false, 'error', 'TEAM_ELIMINATED', 'message', 'Team eliminated.');
+    END IF;
+
+    -- Update or insert progress record for this round
+    SELECT * INTO v_progress
+    FROM public.team_progress
+    WHERE team_id = v_team.id AND round_number = p_round_number
+    FOR UPDATE;
+
+    IF FOUND THEN
+        UPDATE public.team_progress
+        SET puzzle_solved = true,
+            puzzle_solved_at = COALESCE(puzzle_solved_at, NOW()),
+            attempts_count = attempts_count + 1,
+            updated_at = NOW()
+        WHERE team_id = v_team.id AND round_number = p_round_number;
+    ELSE
+        INSERT INTO public.team_progress (
+            team_id, round_number, puzzle_solved, puzzle_solved_at,
+            qr_scanned, attempts_count, round_started_at
+        ) VALUES (
+            v_team.id, p_round_number, true, NOW(),
+            false, 1, NOW()
+        );
+    END IF;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'puzzle_solved', true,
+        'round_number', p_round_number,
+        'message', 'Puzzle solve recorded for tracking.'
+    );
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 14. REVOKE UNNECESSARY EXECUTION AND GRANT SPECIFIC ROLES
 -- -----------------------------------------------------------------------------
 REVOKE ALL ON FUNCTION public.admin_set_team_credentials(VARCHAR, UUID, VARCHAR, VARCHAR) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admin_set_team_credentials(VARCHAR, UUID, VARCHAR, VARCHAR) TO anon, authenticated;
@@ -952,5 +1021,8 @@ GRANT EXECUTE ON FUNCTION public.admin_update_location(VARCHAR, INT, VARCHAR, TE
 
 REVOKE ALL ON FUNCTION public.admin_get_dashboard_data(VARCHAR) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admin_get_dashboard_data(VARCHAR) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.record_puzzle_solved(VARCHAR, INT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.record_puzzle_solved(VARCHAR, INT) TO anon, authenticated;
 
 COMMENT ON TABLE public.teams IS 'Participant teams with admin-managed credentials (username + bcrypt passcode_hash)';

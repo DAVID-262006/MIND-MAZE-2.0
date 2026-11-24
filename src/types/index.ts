@@ -18,7 +18,7 @@ export type PuzzleType =
   | 'CODE_BASED'
   | 'THREE_PART_TEXT';
 
-export type SupportedLanguage = 'c' | 'cpp' | 'python' | 'java';
+export type SupportedLanguage = 'c' | 'cpp' | 'python' | 'java' | 'javascript';
 
 export type ViolationType = 
   | 'tab_switch' 
@@ -30,6 +30,7 @@ export interface TestCase {
   input: string;
   expectedOutput: string;
   explanation?: string;
+  isHidden?: boolean;
 }
 
 export interface ThreePartQuestions {

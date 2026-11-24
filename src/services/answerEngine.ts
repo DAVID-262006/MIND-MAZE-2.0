@@ -13,6 +13,7 @@ export interface AnswerValidationResult {
   isCorrect: boolean;
   feedback: string;
   partResults?: ThreePartResult;
+  executionOutput?: string;
 }
 
 export class AnswerValidator {

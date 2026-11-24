@@ -13,12 +13,15 @@ import {
   Code2, 
   Layers,
   Sparkles,
-  AlertCircle
+  AlertCircle,
+  Package
 } from 'lucide-react';
 import { useToast } from '../ui/Toast';
 import { useGameStore } from '../../store/gameStore';
 import { PuzzleRenderer } from '../arena/PuzzleRenderer';
 import { AnswerValidator } from '../../services/answerEngine';
+import { ConfigPackageManagerModal } from './ConfigPackageManagerModal';
+import { QuestionRegistry, mapQuestionToRiddle } from '../../features/questions';
 import type { Riddle, PuzzleType, ThreePartResult } from '../../types';
 
 export function AdminPuzzlesTab() {
@@ -28,6 +31,7 @@ export function AdminPuzzlesTab() {
 
   const [editingRiddle, setEditingRiddle] = useState<Riddle | null>(null);
   const [activeModalTab, setActiveModalTab] = useState<'edit' | 'preview'>('edit');
+  const [isPkgModalOpen, setIsPkgModalOpen] = useState(false);
 
   // Form states
   const [formRound, setFormRound] = useState<number>(1);
@@ -192,16 +196,27 @@ export function AdminPuzzlesTab() {
         </div>
 
         {isSuperadminOrAdmin && (
-          <Button
-            size="sm"
-            variant="primary"
-            icon={<Plus className="w-4 h-4" />}
-            onClick={openNew}
-            disabled={activeRiddles.length >= 9}
-            className="text-xs font-mono font-bold"
-          >
-            Add Challenge
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={<Package className="w-4 h-4" />}
+              onClick={() => setIsPkgModalOpen(true)}
+              className="text-xs font-mono font-bold"
+            >
+              Distribute / Export
+            </Button>
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<Plus className="w-4 h-4" />}
+              onClick={openNew}
+              disabled={activeRiddles.length >= 9}
+              className="text-xs font-mono font-bold"
+            >
+              Add Challenge
+            </Button>
+          </div>
         )}
       </div>
 
@@ -508,6 +523,16 @@ export function AdminPuzzlesTab() {
           </div>
         )}
       </Modal>
+
+      <ConfigPackageManagerModal
+        isOpen={isPkgModalOpen}
+        onClose={() => setIsPkgModalOpen(false)}
+        onSuccess={() => {
+          // Re-render questions by refreshing store state
+          const updated = QuestionRegistry.getAllQuestions().map(mapQuestionToRiddle);
+          updated.forEach((r) => saveRiddle(r));
+        }}
+      />
     </div>
   );
 }

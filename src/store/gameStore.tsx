@@ -19,6 +19,12 @@ import { calculateLeaderboard } from '../services/leaderboardEngine';
 import { ViolationManager } from '../services/violationManager';
 import { supabase } from '../lib/supabase';
 import { SupabaseService } from '../services/supabaseService';
+import {
+  QuestionRegistry,
+  mapQuestionToRiddle,
+  mapRiddleToQuestion,
+  LocalEvaluationEngine,
+} from '../features/questions';
 
 interface GameContextType {
   config: GameEventConfig;
@@ -83,8 +89,16 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   // Primary persistent state
   const [config, setConfig] = useState<GameEventConfig>(() => StorageService.loadConfig());
   const [teams, setTeams] = useState<Team[]>(() => StorageService.loadTeams());
-  const [locations, setLocations] = useState<LocationCheckpoint[]>(() => StorageService.loadLocations());
-  const [riddles, setRiddles] = useState<Riddle[]>(() => StorageService.loadRiddles());
+  const [locations, setLocations] = useState<LocationCheckpoint[]>(() => {
+    const rawLocs = StorageService.loadLocations();
+    return rawLocs.map((loc) => ({
+      ...loc,
+      riddleClue: QuestionRegistry.getRiddleForLocation(loc.id)?.riddleClue || loc.riddleClue,
+    }));
+  });
+  const [riddles, setRiddles] = useState<Riddle[]>(() => {
+    return QuestionRegistry.getAllQuestions().map(mapQuestionToRiddle);
+  });
   const [routes, setRoutes] = useState<RouteAssignment[]>(() => StorageService.loadRoutes());
   const [progress, setProgress] = useState<TeamRoundProgress[]>(() => StorageService.loadProgress());
   const [incidents, setIncidents] = useState<AntiCheatIncident[]>(() => StorageService.loadIncidents());
@@ -241,8 +255,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         setTeams(data.teams ?? []);
-        setLocations(data.locations ?? []);
-        setRiddles(data.puzzles ?? []);
+        setLocations((data.locations ?? []).map((loc) => ({
+          ...loc,
+          riddleClue: QuestionRegistry.getRiddleForLocation(loc.id)?.riddleClue || loc.riddleClue,
+        })));
+        // ARCHITECTURE MANDATE: Frontend owns question content. Do not overwrite from Supabase.
+        setRiddles(QuestionRegistry.getAllQuestions().map(mapQuestionToRiddle));
         setRoutes(data.routes ?? []);
         setProgress(data.progress ?? []);
         setIncidents(data.incidents ?? []);
@@ -868,7 +886,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, [teams, adminToken]);
 
   const updateLocation = useCallback((id: number, updates: Partial<LocationCheckpoint>) => {
+    // If updating location riddle, persist strictly to frontend QuestionRegistry
+    if (updates.riddleClue !== undefined) {
+      QuestionRegistry.saveLocationRiddle(id, updates.riddleClue);
+    }
+
     setLocations((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)));
+
+    // Send physical location tracking metadata only to Supabase (name, description, capacity)
     if (SupabaseService.isConfigured() && adminToken) {
       const targetLoc = locations.find((l) => l.id === id);
       const name = updates.name ?? targetLoc?.name ?? '';
@@ -904,22 +929,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, [locations, adminToken]);
 
   const saveRiddle = useCallback((riddle: Riddle) => {
-    setRiddles((prev) => {
-      const idx = prev.findIndex((r) => r.roundNumber === riddle.roundNumber || r.id === riddle.id);
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = riddle;
-        return copy;
-      }
-      return [...prev, riddle];
-    });
-
-    if (SupabaseService.isConfigured() && adminToken) {
-      SupabaseService.adminSavePuzzle(riddle, adminToken).catch((err) => {
-        console.warn('[Supabase] adminSavePuzzle error:', err);
-      });
-    }
-  }, [adminToken]);
+    // ARCHITECTURE MANDATE: Save strictly to frontend QuestionRegistry
+    QuestionRegistry.saveQuestion(mapRiddleToQuestion(riddle));
+    setRiddles(QuestionRegistry.getAllQuestions().map(mapQuestionToRiddle));
+  }, []);
 
   const deleteRiddle = useCallback((id: string) => {
     setRiddles((prev) => prev.filter((r) => r.id !== id));
@@ -1198,60 +1211,17 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       return { isCorrect: false, feedback: 'Submission rejected: Team has been eliminated.' };
     }
 
-    if (SupabaseService.isConfigured()) {
-      const sessionToken = sessionStorage.getItem('mm2_session_token') || '';
-      const rpcRes = await SupabaseService.submitPuzzleAnswer(teamId, sessionToken, answer);
-      if (rpcRes.error || !rpcRes.data || !rpcRes.data.success) {
-        return {
-          isCorrect: false,
-          feedback: rpcRes.error || rpcRes.data?.message || 'Submission error.',
-        };
-      }
-
-      const isCorrect = Boolean(rpcRes.data.correct || rpcRes.data.puzzle_solved);
-      const now = new Date().toISOString();
-      const riddleClue = rpcRes.data.riddle || null;
-
-      setProgress((prev) => {
-        const idx = prev.findIndex((p) => p.teamId === teamId && p.roundNumber === roundNumber);
-        if (idx >= 0) {
-          const copy = [...prev];
-          copy[idx] = {
-            ...copy[idx]!,
-            attemptsCount: rpcRes.data!.attempts_count || (copy[idx]!.attemptsCount + 1),
-            puzzleSolved: isCorrect ? true : copy[idx]!.puzzleSolved,
-            puzzleSolvedAt: isCorrect ? (copy[idx]!.puzzleSolvedAt || now) : copy[idx]!.puzzleSolvedAt,
-            riddleRevealed: isCorrect ? (riddleClue || copy[idx]!.riddleRevealed) : copy[idx]!.riddleRevealed,
-          };
-          return copy;
-        }
-        return prev;
-      });
-
-      return {
-        isCorrect,
-        feedback: rpcRes.data.message || (isCorrect ? '✓ Verified Correct!' : 'Incorrect answer. Try again.'),
-        partResults: rpcRes.data.part_results as any,
-      };
+    // 1. Retrieve question from frontend QuestionRegistry
+    const question = QuestionRegistry.getQuestionForRound(roundNumber);
+    if (!question) {
+      return { isCorrect: false, feedback: `Question for Round ${roundNumber} not found in registry.` };
     }
 
-    // Local offline fallback
-    const riddle = riddles.find((r) => r.roundNumber === roundNumber);
-    if (!riddle) {
-      return { isCorrect: false, feedback: 'Riddle for this round not found.' };
-    }
-
-    const validation = AnswerValidator.validate(answer, {
-      acceptedAnswers: riddle.acceptedAnswers,
-      caseSensitive: riddle.caseSensitive,
-      normalizeWhitespace: riddle.normalizeWhitespace,
-      options: riddle.options,
-      threePartAnswers: riddle.threePartAnswers,
-    });
-
+    // 2. Perform 100% local client-side evaluation (instantaneous feedback, zero Supabase question leakage)
+    const validation = LocalEvaluationEngine.evaluateAnswer(question, answer);
     const now = new Date().toISOString();
-    const revealedClue = validation.isCorrect ? (riddle.riddleClue || riddle.descriptionMd) : null;
 
+    // 3. Update local progress state
     setProgress((prev) => {
       const idx = prev.findIndex((p) => p.teamId === teamId && p.roundNumber === roundNumber);
       if (idx >= 0) {
@@ -1261,7 +1231,6 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           attemptsCount: current.attemptsCount + 1,
           puzzleSolved: validation.isCorrect ? true : current.puzzleSolved,
           puzzleSolvedAt: validation.isCorrect ? (current.puzzleSolvedAt || now) : current.puzzleSolvedAt,
-          riddleRevealed: validation.isCorrect ? (revealedClue || current.riddleRevealed) : current.riddleRevealed,
         };
         const copy = [...prev];
         copy[idx] = updated;
@@ -1282,14 +1251,29 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             roundStartedAt: new Date(nowEpoch).toISOString(),
             deadlineAt: new Date(nowEpoch + dur * 1000).toISOString(),
             graceDeadlineAt: new Date(nowEpoch + (dur + grace) * 1000).toISOString(),
-            riddleRevealed: revealedClue,
           },
         ];
       }
     });
 
-    return validation;
-  }, [teams, riddles, config.roundDurationSeconds, config.gracePeriodSeconds]);
+    // 4. Synchronize operational tracking ONLY with Supabase
+    // Strictly operational: NO question text, NO answers, NO code submitted.
+    if (validation.isCorrect && SupabaseService.isConfigured()) {
+      const sessionToken = sessionStorage.getItem('mm2_session_token') || '';
+      if (sessionToken) {
+        SupabaseService.recordPuzzleSolved(sessionToken, roundNumber).catch((err) => {
+          console.warn('[Supabase] Failed to sync puzzle solved tracking status:', err);
+        });
+      }
+    }
+
+    return {
+      isCorrect: validation.isCorrect,
+      feedback: validation.feedback,
+      partResults: validation.partResults,
+      executionOutput: validation.executionOutput,
+    };
+  }, [teams, config.roundDurationSeconds, config.gracePeriodSeconds]);
 
   const verifyQrToken = useCallback(async (teamId: string, roundNumber: number, scannedToken: string) => {
     const targetTeam = teams.find((t) => t.id === teamId);

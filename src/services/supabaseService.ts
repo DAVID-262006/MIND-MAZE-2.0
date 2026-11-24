@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured, checkSupabaseConnection, type SupabaseConnectionStatus } from '../lib/supabase';
 import type { Team, LocationCheckpoint, Riddle, RouteAssignment, TeamRoundProgress, AntiCheatIncident, LeaderboardEntry, GameEventConfig, ViolationType } from '../types';
+import { QuestionRegistry, mapQuestionToRiddle } from '../features/questions';
 
 /**
  * Result structure for backend RPC operations.
@@ -267,27 +268,50 @@ export class SupabaseService {
   }
 
   /**
-   * Submit puzzle answer: submit_puzzle_answer(p_team_id, p_session_token, p_answer)
+   * Operational tracking only: record_puzzle_solved(p_session_token, p_round_number)
+   * Informs Supabase that the team has solved the checkpoint puzzle.
+   * STRICT ARCHITECTURE RULE: ZERO question content or answers sent to Supabase.
+   */
+  public static async recordPuzzleSolved(sessionToken: string, roundNumber: number) {
+    const res = await this.callRpc<{
+      success: boolean;
+      puzzle_solved: boolean;
+      current_round: number;
+      message: string;
+    }>('record_puzzle_solved', {
+      p_session_token: sessionToken,
+      p_round_number: roundNumber,
+    });
+
+    if (res.success) return res;
+
+    // Resilient tracking fallback for schemas with legacy submit_puzzle_answer
+    if (res.isFallback || res.error?.includes('not yet deployed') || res.error?.includes('schema cache')) {
+      const teamId = sessionStorage.getItem('mm2_team_id') || '';
+      return this.callRpc<{
+        success: boolean;
+        puzzle_solved: boolean;
+        message: string;
+      }>('submit_puzzle_answer', {
+        p_team_id: teamId,
+        p_session_token: sessionToken,
+        p_answer: 'LOCAL_VERIFIED',
+      });
+    }
+
+    return res;
+  }
+
+  /**
+   * Operational tracking alias for legacy calls.
+   * STRICT ARCHITECTURE RULE: ZERO question content or answers sent to Supabase.
    */
   public static async submitPuzzleAnswer(
     teamId: string,
     sessionToken: string,
-    submittedAnswer: string
+    _submittedAnswer?: string
   ) {
-    return this.callRpc<{
-      success: boolean;
-      correct: boolean;
-      puzzle_solved: boolean;
-      attempts_count: number;
-      remaining_attempts?: number;
-      riddle?: string;
-      message: string;
-      part_results?: Record<string, { correct: boolean }>;
-    }>('submit_puzzle_answer', {
-      p_team_id: teamId,
-      p_session_token: sessionToken,
-      p_answer: submittedAnswer.trim(),
-    });
+    return this.recordPuzzleSolved(sessionToken, 1);
   }
 
   /**
@@ -857,27 +881,12 @@ export class SupabaseService {
     });
   }
 
-  public static async adminSavePuzzle(riddle: Riddle, adminToken: string) {
-    return this.callRpc<{ success: boolean; message: string }>('admin_save_puzzle', {
-      p_admin_token: adminToken,
-      p_id: riddle.id,
-      p_round_number: riddle.roundNumber,
-      p_title: riddle.title,
-      p_puzzle_type: riddle.puzzleType,
-      p_description_md: riddle.descriptionMd,
-      p_accepted_answers: riddle.acceptedAnswers || [],
-      p_riddle_text: riddle.riddleClue || riddle.descriptionMd,
-      p_hints: riddle.hints || [],
-      p_options: riddle.options || [],
-      p_correct_option_index: riddle.correctOptionIndex ?? null,
-      p_image_url: riddle.imageUrl ?? null,
-      p_image_alt: riddle.imageAlt ?? null,
-      p_three_part_questions: riddle.threePartQuestions || {},
-      p_three_part_answers: riddle.threePartAnswers || {},
-      p_code_language: riddle.codeLanguage || 'python',
-      p_code_snippet: riddle.codeSnippet || '',
-      p_is_active: riddle.isActive ?? true,
-    });
+  /**
+   * ARCHITECTURE MANDATE: Frontend owns all question content.
+   * No question data is sent to or stored in Supabase.
+   */
+  public static async adminSavePuzzle(_riddle: Riddle, _adminToken: string) {
+    return { success: true, message: 'Question saved in frontend question registry.' };
   }
 
   /* -------------------------------------------------------------------------
@@ -1027,44 +1036,11 @@ export class SupabaseService {
   }
 
   /**
-   * Fetch puzzles for admin panel.
+   * ARCHITECTURE MANDATE: Frontend owns question content.
+   * Returns questions from the frontend QuestionRegistry.
    */
   public static async fetchAdminPuzzles(): Promise<Riddle[]> {
-    if (!isSupabaseConfigured || !supabase) return [];
-    try {
-      const { data, error } = await supabase
-        .from('puzzles')
-        .select('*')
-        .order('round_number');
-
-      if (error || !data) return [];
-
-      return data.map((p: Record<string, unknown>) => ({
-        id: String(p.id),
-        roundNumber: Number(p.round_number),
-        title: String(p.title),
-        puzzleType: p.puzzle_type as Riddle['puzzleType'],
-        descriptionMd: String(p.description_md || ''),
-        acceptedAnswers: Array.isArray(p.accepted_answers) ? p.accepted_answers : [],
-        caseSensitive: Boolean(p.case_sensitive),
-        normalizeWhitespace: Boolean(p.normalize_whitespace),
-        hints: Array.isArray(p.hints) ? p.hints : [],
-        maxAttempts: Number(p.max_attempts || 5),
-        options: Array.isArray(p.options) ? p.options : undefined,
-        correctOptionIndex: p.correct_option_index !== null ? Number(p.correct_option_index) : undefined,
-        imageUrl: (p.image_url as string) || undefined,
-        imageAlt: (p.image_alt as string) || undefined,
-        published: true,
-        threePartQuestions: p.three_part_questions as Riddle['threePartQuestions'],
-        threePartAnswers: p.three_part_answers as Riddle['threePartAnswers'],
-        codeLanguage: (p.code_language as string) || undefined,
-        codeSnippet: (p.code_snippet as string) || undefined,
-        riddleClue: (p.riddle_text as string) || undefined,
-        isActive: p.is_active !== undefined ? Boolean(p.is_active) : true,
-      }));
-    } catch {
-      return [];
-    }
+    return QuestionRegistry.getAllQuestions().map(mapQuestionToRiddle);
   }
 
   /**

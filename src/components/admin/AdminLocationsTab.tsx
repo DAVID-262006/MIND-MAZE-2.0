@@ -17,11 +17,14 @@ import {
   CheckCircle2,
   AlertCircle,
   Sparkles,
-  FileText
+  FileText,
+  Package
 } from 'lucide-react';
 import { useToast } from '../ui/Toast';
 import { useGameStore } from '../../store/gameStore';
 import { SupabaseService } from '../../services/supabaseService';
+import { ConfigPackageManagerModal } from './ConfigPackageManagerModal';
+import { QuestionRegistry } from '../../features/questions';
 import type { LocationCheckpoint } from '../../types';
 
 export function AdminLocationsTab() {
@@ -36,6 +39,7 @@ export function AdminLocationsTab() {
 
   const [activeSubView, setActiveSubView] = useState<'tokens' | 'riddles' | 'occupancy'>('tokens');
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [isPkgModalOpen, setIsPkgModalOpen] = useState(false);
 
   // QR Modal
   const [selectedLocation, setSelectedLocation] = useState<LocationCheckpoint | null>(null);
@@ -386,16 +390,27 @@ export function AdminLocationsTab() {
       {/* View 2: Location Riddles Management View */}
       {activeSubView === 'riddles' && (
         <div className="space-y-4">
-          <div className="p-3.5 bg-arena-card border border-arena-border rounded-xl flex items-center justify-between text-xs">
+          <div className="p-3.5 bg-arena-card border border-arena-border rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
             <div className="flex items-center gap-2 text-zinc-300">
               <Sparkles className="w-4 h-4 text-electric-cyan" />
               <span>
                 Each of the 9 physical stations has its own independent multiline riddle. Participants view this riddle when routed to this station.
               </span>
             </div>
-            <span className="text-[11px] font-mono font-bold text-electric-emerald">
-              {configuredRiddlesCount} / 9 Configured
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-mono font-bold text-electric-emerald px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                {configuredRiddlesCount} / 9 Configured
+              </span>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<Package className="w-3.5 h-3.5" />}
+                onClick={() => setIsPkgModalOpen(true)}
+                className="text-xs"
+              >
+                Distribute / Export
+              </Button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -765,6 +780,20 @@ export function AdminLocationsTab() {
           </div>
         </div>
       </Modal>
+
+      <ConfigPackageManagerModal
+        isOpen={isPkgModalOpen}
+        onClose={() => setIsPkgModalOpen(false)}
+        onSuccess={() => {
+          // Sync location riddles
+          activeStations.forEach((loc) => {
+            const rid = QuestionRegistry.getRiddleForLocation(loc.id);
+            if (rid) {
+              updateLocation(loc.id, { riddleClue: rid.riddleClue });
+            }
+          });
+        }}
+      />
     </div>
   );
 }
