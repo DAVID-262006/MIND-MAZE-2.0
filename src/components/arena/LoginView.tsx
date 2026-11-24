@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Compass, KeyRound, User, AlertOctagon, Sparkles, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Compass, KeyRound, User, AlertOctagon, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { useFullscreen } from '../../hooks/useFullscreen';
 
@@ -49,14 +49,6 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     await enterFullscreen().catch(() => {});
     onLoginSuccess?.();
   };
-
-  const handleSelectTeam = (t: { username?: string | null; teamCode: string }) => {
-    setUsername(t.username || t.teamCode.toLowerCase());
-    setErrorMessage(null);
-  };
-
-  // 4 most common quick test teams
-  const quickTeams = teams.slice(0, 4);
 
   return (
     <div className="min-h-[90vh] flex flex-col justify-center items-center px-4 py-6 max-w-md mx-auto w-full select-none">
@@ -134,40 +126,6 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
             ENTER ARENA
           </Button>
         </form>
-
-        {/* Quick Team Selection (Omit passwords) */}
-        <div className="pt-4 border-t border-arena-border/80 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-arena-muted flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-electric-cyan" />
-              <span>Registered Teams Quick-Pick</span>
-            </span>
-            <span className="text-[9px] font-mono text-arena-muted">Tap to Fill Username</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            {quickTeams.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => handleSelectTeam(t)}
-                className="p-2.5 text-left bg-arena-panel hover:bg-arena-hover active:scale-[0.98] border border-arena-border hover:border-electric-cyan/50 rounded-xl transition-all"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono font-bold text-electric-cyan">
-                    {t.teamCode}
-                  </span>
-                  <span className="text-[10px] font-mono text-arena-muted">
-                    {t.username || t.teamCode.toLowerCase()}
-                  </span>
-                </div>
-                <div className="text-[11px] text-white truncate mt-0.5 font-medium">
-                  {t.teamName}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   );

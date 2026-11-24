@@ -954,20 +954,29 @@ export class SupabaseService {
   public static async fetchPublicEventStatus(): Promise<Partial<GameEventConfig> | null> {
     if (!isSupabaseConfigured || !supabase) return null;
     try {
+      let row: any = null;
       const { data, error } = await supabase.from('public_event_status').select('*').single();
-      if (error || !data) return null;
+      if (!error && data) {
+        row = data;
+      } else {
+        // Direct table fallback if view is pending or not exposed
+        const { data: esData } = await supabase.from('event_settings').select('*').limit(1).maybeSingle();
+        if (esData) row = esData;
+      }
+
+      if (!row) return null;
 
       return {
         id: 'event-arena-2026',
-        title: (data.event_name as string) || 'MIND MAZE 2.0',
-        status: (data.status as GameEventConfig['status']) || 'ready',
-        totalTeams: Number(data.total_teams || 20),
-        totalRounds: Number(data.active_locations_count || 10),
-        roundDurationSeconds: Number(data.round_duration_seconds || 300),
-        gracePeriodSeconds: Number(data.grace_period_seconds || 30),
-        eventStartedAt: (data.event_started_at as string) || null,
-        eventFinishedAt: (data.event_finished_at as string) || null,
-        totalPauseDurationMs: Number(data.total_pause_duration_ms || 0),
+        title: (row.event_name as string) || 'MIND MAZE 2.0',
+        status: (row.status as GameEventConfig['status']) || 'ready',
+        totalTeams: Number(row.total_teams || 20),
+        totalRounds: Number(row.active_locations_count || 9),
+        roundDurationSeconds: Number(row.round_duration_seconds || 300),
+        gracePeriodSeconds: Number(row.grace_period_seconds || 30),
+        eventStartedAt: (row.event_started_at as string) || null,
+        eventFinishedAt: (row.event_finished_at as string) || null,
+        totalPauseDurationMs: Number(row.total_pause_duration_ms || 0),
       };
     } catch {
       return null;

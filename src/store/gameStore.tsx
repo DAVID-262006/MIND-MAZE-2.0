@@ -272,6 +272,135 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [isAdminAuthenticated, adminToken]);
 
+  // Continuous polling for public event status (Lobby auto-start & sync without refresh)
+  useEffect(() => {
+    if (!SupabaseService.isConfigured()) return;
+
+    let isMounted = true;
+    const pollEventStatus = async () => {
+      try {
+        const latest = await SupabaseService.fetchPublicEventStatus();
+        if (!isMounted || !latest) return;
+
+        setConfig((prev) => {
+          if (prev.status !== latest.status) {
+            return { ...prev, ...latest };
+          }
+          return prev;
+        });
+
+        // When event transitions to 'live', activate the participant's team session automatically
+        if (latest.status === 'live' && activeTeamId) {
+          const durationSeconds = config.roundDurationSeconds || 300;
+          const graceSeconds = config.gracePeriodSeconds || 30;
+          const nowEpoch = Date.now();
+
+          setTeams((prev) =>
+            prev.map((t) => {
+              if (t.id === activeTeamId && (t.status === 'ready' || t.status === 'registered')) {
+                return { ...t, status: 'active', startedAt: t.startedAt || new Date().toISOString() };
+              }
+              return t;
+            })
+          );
+
+          setProgress((prev) => {
+            const existing = prev.find((p) => p.teamId === activeTeamId && p.roundNumber === 1);
+            if (!existing) {
+              return [
+                ...prev,
+                {
+                  teamId: activeTeamId,
+                  roundNumber: 1,
+                  puzzleSolved: false,
+                  qrScanned: false,
+                  attemptsCount: 0,
+                  roundStartedAt: new Date(nowEpoch).toISOString(),
+                  deadlineAt: new Date(nowEpoch + durationSeconds * 1000).toISOString(),
+                  graceDeadlineAt: new Date(nowEpoch + (durationSeconds + graceSeconds) * 1000).toISOString(),
+                },
+              ];
+            }
+            return prev;
+          });
+        }
+      } catch {
+        // Silently retry on next interval tick
+      }
+    };
+
+    pollEventStatus();
+    const interval = setInterval(pollEventStatus, 2500);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [activeTeamId, config.roundDurationSeconds, config.gracePeriodSeconds]);
+
+  // Periodic sync for active team state and progression
+  useEffect(() => {
+    if (!SupabaseService.isConfigured() || !activeTeamId) return;
+    const sessionToken = sessionStorage.getItem('mm2_session_token');
+    if (!sessionToken) return;
+
+    let isMounted = true;
+    const syncActiveTeam = async () => {
+      try {
+        const stateRes = await SupabaseService.getTeamState(activeTeamId, sessionToken);
+        if (!isMounted || !stateRes.data) return;
+
+        const { team: st, current_progress: cp } = stateRes.data;
+        if (st) {
+          setTeams((prev) =>
+            prev.map((t) =>
+              t.id === st.id
+                ? {
+                    ...t,
+                    status: (st.status as Team['status']) || t.status,
+                    currentRound: st.current_round || t.currentRound,
+                    strikes: st.total_strikes ?? t.strikes,
+                    eliminationReason: (st as any).elimination_reason !== undefined ? (st as any).elimination_reason : t.eliminationReason,
+                    completedAt: st.completed_at || t.completedAt,
+                  }
+                : t
+            )
+          );
+        }
+        if (cp) {
+          setProgress((prev) => {
+            const idx = prev.findIndex((p) => p.teamId === activeTeamId && p.roundNumber === cp.round_number);
+            const mapped: TeamRoundProgress = {
+              teamId: activeTeamId,
+              roundNumber: cp.round_number,
+              puzzleSolved: Boolean(cp.puzzle_solved),
+              puzzleSolvedAt: cp.puzzle_solved_at,
+              qrScanned: Boolean(cp.qr_scanned),
+              qrScannedAt: cp.qr_scanned_at,
+              attemptsCount: cp.attempts_count || 0,
+              roundStartedAt: cp.round_started_at,
+              deadlineAt: cp.deadline_at,
+              graceDeadlineAt: cp.grace_deadline_at,
+            };
+            if (idx >= 0) {
+              const updated = [...prev];
+              updated[idx] = { ...updated[idx], ...mapped };
+              return updated;
+            }
+            return [...prev, mapped];
+          });
+        }
+      } catch {
+        // Silently retry
+      }
+    };
+
+    const interval = setInterval(syncActiveTeam, 4000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [activeTeamId]);
+
   // Realtime subscription
   useEffect(() => {
     if (!SupabaseService.isConfigured() || !supabase) return;
@@ -435,11 +564,25 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const durationSeconds = config.roundDurationSeconds || 300;
     const graceSeconds = config.gracePeriodSeconds || 30;
 
-    if (SupabaseService.isConfigured() && adminToken) {
+    if (SupabaseService.isConfigured()) {
+      if (adminToken) {
+        try {
+          await SupabaseService.startEvent(adminToken);
+        } catch (err) {
+          console.warn('[Supabase] startEvent warning:', err);
+        }
+      }
       try {
-        await SupabaseService.startEvent(adminToken);
-      } catch (err) {
-        console.warn('[Supabase] startEvent warning:', err);
+        if (supabase) {
+          await supabase.from('event_settings').update({
+            status: 'live',
+            event_started_at: now,
+            routes_locked: true,
+            updated_at: now,
+          }).eq('id', 1);
+        }
+      } catch (e) {
+        console.warn('[Supabase] event_settings start fallback warning:', e);
       }
     }
 
@@ -482,11 +625,25 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, [config.roundDurationSeconds, config.gracePeriodSeconds, teams, adminToken]);
 
   const pauseEvent = useCallback(async () => {
-    if (SupabaseService.isConfigured() && adminToken) {
+    const now = new Date().toISOString();
+    if (SupabaseService.isConfigured()) {
+      if (adminToken) {
+        try {
+          await SupabaseService.pauseEvent(adminToken);
+        } catch (err) {
+          console.warn('[Supabase] pauseEvent warning:', err);
+        }
+      }
       try {
-        await SupabaseService.pauseEvent(adminToken);
-      } catch (err) {
-        console.warn('[Supabase] pauseEvent warning:', err);
+        if (supabase) {
+          await supabase.from('event_settings').update({
+            status: 'paused',
+            pause_started_at: now,
+            updated_at: now,
+          }).eq('id', 1);
+        }
+      } catch (e) {
+        console.warn('[Supabase] event_settings pause fallback warning:', e);
       }
     }
 
@@ -500,12 +657,26 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const resumeEvent = useCallback(async () => {
     const pauseStarted = config.pauseStartedAt;
     const pauseDuration = pauseStarted ? Math.max(0, Date.now() - pauseStarted) : 0;
+    const now = new Date().toISOString();
 
-    if (SupabaseService.isConfigured() && adminToken) {
+    if (SupabaseService.isConfigured()) {
+      if (adminToken) {
+        try {
+          await SupabaseService.resumeEvent(adminToken);
+        } catch (err) {
+          console.warn('[Supabase] resumeEvent warning:', err);
+        }
+      }
       try {
-        await SupabaseService.resumeEvent(adminToken);
-      } catch (err) {
-        console.warn('[Supabase] resumeEvent warning:', err);
+        if (supabase) {
+          await supabase.from('event_settings').update({
+            status: 'live',
+            pause_started_at: null,
+            updated_at: now,
+          }).eq('id', 1);
+        }
+      } catch (e) {
+        console.warn('[Supabase] event_settings resume fallback warning:', e);
       }
     }
 
@@ -536,18 +707,32 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, [config.pauseStartedAt, adminToken]);
 
   const endEvent = useCallback(async () => {
-    if (SupabaseService.isConfigured() && adminToken) {
+    const now = new Date().toISOString();
+    if (SupabaseService.isConfigured()) {
+      if (adminToken) {
+        try {
+          await SupabaseService.endEvent(adminToken);
+        } catch (err) {
+          console.warn('[Supabase] endEvent warning:', err);
+        }
+      }
       try {
-        await SupabaseService.endEvent(adminToken);
-      } catch (err) {
-        console.warn('[Supabase] endEvent warning:', err);
+        if (supabase) {
+          await supabase.from('event_settings').update({
+            status: 'finished',
+            event_finished_at: now,
+            updated_at: now,
+          }).eq('id', 1);
+        }
+      } catch (e) {
+        console.warn('[Supabase] event_settings end fallback warning:', e);
       }
     }
 
     setConfig((prev) => ({
       ...prev,
       status: 'finished',
-      eventFinishedAt: new Date().toISOString(),
+      eventFinishedAt: now,
     }));
   }, [adminToken]);
 

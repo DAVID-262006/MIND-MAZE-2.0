@@ -53,7 +53,7 @@ export function LobbyView({ team, onLogout }: LobbyViewProps) {
           <ul className="text-xs text-arena-muted space-y-2 leading-relaxed">
             <li className="flex items-start gap-2">
               <span className="text-electric-cyan font-bold">&bull;</span>
-              <span><strong>10 Rounds &amp; 10 Stations:</strong> Visit each assigned checkpoint exactly once.</span>
+              <span><strong>9 Rounds &amp; 9 Stations:</strong> Visit each assigned checkpoint exactly once.</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="text-electric-amber font-bold">&bull;</span>

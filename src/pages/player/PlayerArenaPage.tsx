@@ -25,6 +25,13 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
   const { isFullscreen, toggleFullscreen, isSupported } = useFullscreen();
   const [hasStartedGame, setHasStartedGame] = useState(false);
 
+  // Requirement 9: Automatically transition participant from lobby to active gameplay without manual refresh
+  React.useEffect(() => {
+    if (config.status === 'live') {
+      setHasStartedGame(true);
+    }
+  }, [config.status]);
+
   // 1. If not authenticated, render Welcome / Login Screen
   if (!activeTeam) {
     return (
@@ -65,7 +72,7 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
       <div className="min-h-screen bg-arena-bg flex flex-col">
         <PlayerHeader
           teamCode={activeTeam.teamCode}
-          currentRound={10}
+          currentRound={9}
           strikes={activeTeam.strikes}
           isFullscreen={isFullscreen}
           onToggleFullscreen={isSupported ? toggleFullscreen : undefined}

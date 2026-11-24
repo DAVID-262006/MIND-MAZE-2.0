@@ -306,7 +306,7 @@ return solve;`
     }
 
     if (question.questionType === 'CODE_BASED') {
-      const code = typeof submission === 'string' ? submission : submission.partA || '';
+      const code = typeof submission === 'string' ? submission : submission?.partA || '';
       return this.evaluateCode(question, code, options);
     } else if (question.questionType === 'THREE_PART_TEXT') {
       let subObj: { partA?: string; partB?: string; partC?: string };

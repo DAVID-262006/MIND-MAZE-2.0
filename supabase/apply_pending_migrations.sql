@@ -4641,8 +4641,277 @@ END;
 $$;
 
 -- -----------------------------------------------------------------------------
--- 14. REVOKE UNNECESSARY EXECUTION AND GRANT SPECIFIC ROLES
+-- 13. ADMIN CUSTOM AUTHENTICATION & LOGOUT RPCs
 -- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_custom_login(VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_custom_login;
+CREATE OR REPLACE FUNCTION public.admin_custom_login(
+    p_username VARCHAR,
+    p_password VARCHAR
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_clean_user VARCHAR;
+    v_clean_pass VARCHAR;
+    v_token VARCHAR;
+    v_token_hash VARCHAR;
+    v_user RECORD;
+    v_has_admin_table BOOLEAN := false;
+BEGIN
+    v_clean_user := LOWER(TRIM(p_username));
+    v_clean_pass := TRIM(p_password);
+
+    -- 1. Check if admin_users table exists and query it
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'admin_users'
+    ) INTO v_has_admin_table;
+
+    IF v_has_admin_table THEN
+        SELECT u.id, u.username, u.password_hash, u.role, u.full_name, u.is_active, u.locked_until
+        INTO v_user
+        FROM public.admin_users u
+        WHERE LOWER(u.username) = v_clean_user;
+
+        IF FOUND AND v_user.is_active = true THEN
+            -- Check lock
+            IF v_user.locked_until IS NOT NULL AND v_user.locked_until > NOW() THEN
+                RETURN jsonb_build_object('success', false, 'error', 'LOCKED', 'message', 'Account temporarily locked due to excessive failed attempts.');
+            END IF;
+
+            -- Check password via extensions.crypt or master fallback
+            IF extensions.crypt(v_clean_pass, v_user.password_hash) = v_user.password_hash OR
+               (v_clean_user = 'mindmaze' AND (v_clean_pass = 'meadmin2026' OR v_clean_pass = 'mindmaze2026')) THEN
+                
+                v_token := encode(extensions.gen_random_bytes(32), 'hex');
+                v_token_hash := encode(extensions.digest(v_token, 'sha256'), 'hex');
+
+                UPDATE public.admin_users
+                SET active_session_token_hash = v_token_hash,
+                    session_expires_at = NOW() + INTERVAL '12 hours',
+                    failed_login_attempts = 0,
+                    locked_until = NULL,
+                    last_login_at = NOW()
+                WHERE id = v_user.id;
+
+                RETURN jsonb_build_object(
+                    'success', true,
+                    'token', v_token,
+                    'role', v_user.role,
+                    'username', v_user.username,
+                    'fullName', v_user.full_name
+                );
+            END IF;
+        END IF;
+    END IF;
+
+    -- 2. Master hardcoded admin login
+    IF v_clean_user = 'mindmaze' AND (v_clean_pass = 'meadmin2026' OR v_clean_pass = 'mindmaze2026') THEN
+        v_token := 'mm2_hardcoded_admin_token_2026';
+        RETURN jsonb_build_object(
+            'success', true,
+            'token', v_token,
+            'role', 'superadmin',
+            'username', 'mindmaze',
+            'fullName', 'System Superadmin'
+        );
+    END IF;
+
+    RETURN jsonb_build_object(
+        'success', false,
+        'error', 'INVALID_CREDENTIALS',
+        'message', 'Invalid administrator credentials. Access denied.'
+    );
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.admin_custom_logout(VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_custom_logout;
+CREATE OR REPLACE FUNCTION public.admin_custom_logout(
+    p_admin_token VARCHAR
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_token_hash VARCHAR;
+BEGIN
+    IF p_admin_token IS NOT NULL AND p_admin_token <> '' THEN
+        v_token_hash := encode(extensions.digest(p_admin_token, 'sha256'), 'hex');
+        UPDATE public.admin_users
+        SET active_session_token_hash = NULL,
+            session_expires_at = NULL
+        WHERE active_session_token_hash = v_token_hash;
+    END IF;
+
+    RETURN jsonb_build_object('success', true, 'message', 'Admin logged out.');
+EXCEPTION WHEN OTHERS THEN
+    RETURN jsonb_build_object('success', true, 'message', 'Admin logged out.');
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 14. ADMIN EVENT LIFECYCLE RPCs (STATUS, START, PAUSE, RESUME, END)
+-- -----------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_set_event_status(VARCHAR, VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_set_event_status;
+CREATE OR REPLACE FUNCTION public.admin_set_event_status(
+    p_admin_token VARCHAR,
+    p_status VARCHAR
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+    v_clean_status VARCHAR;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Unauthorized: Valid administrator session token required.');
+    END IF;
+
+    v_clean_status := LOWER(TRIM(p_status));
+    IF v_clean_status NOT IN ('draft', 'ready', 'live', 'paused', 'finished') THEN
+        RETURN jsonb_build_object('success', false, 'error', 'INVALID_STATUS', 'message', 'Invalid event status.');
+    END IF;
+
+    UPDATE public.event_settings
+    SET status = v_clean_status,
+        event_started_at = CASE WHEN v_clean_status = 'live' AND event_started_at IS NULL THEN NOW() ELSE event_started_at END,
+        event_finished_at = CASE WHEN v_clean_status = 'finished' THEN NOW() ELSE event_finished_at END,
+        updated_at = NOW()
+    WHERE id = 1;
+
+    RETURN jsonb_build_object('success', true, 'status', v_clean_status, 'message', 'Event status updated to ' || v_clean_status);
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.admin_start_event(VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_start_event;
+CREATE OR REPLACE FUNCTION public.admin_start_event(
+    p_admin_token VARCHAR
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+BEGIN
+    RETURN public.admin_set_event_status(p_admin_token, 'live');
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.admin_pause_event(VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_pause_event;
+CREATE OR REPLACE FUNCTION public.admin_pause_event(
+    p_admin_token VARCHAR
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Unauthorized: Valid administrator session token required.');
+    END IF;
+
+    UPDATE public.event_settings
+    SET status = 'paused',
+        pause_started_at = NOW(),
+        updated_at = NOW()
+    WHERE id = 1;
+
+    RETURN jsonb_build_object('success', true, 'status', 'paused', 'message', 'Event paused successfully.');
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.admin_resume_event(VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_resume_event;
+CREATE OR REPLACE FUNCTION public.admin_resume_event(
+    p_admin_token VARCHAR
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_admin_role VARCHAR;
+    v_pause_start TIMESTAMPTZ;
+    v_additional_pause_ms BIGINT := 0;
+BEGIN
+    v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin']);
+    IF v_admin_role IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Unauthorized: Valid administrator session token required.');
+    END IF;
+
+    SELECT pause_started_at INTO v_pause_start FROM public.event_settings WHERE id = 1;
+    IF v_pause_start IS NOT NULL THEN
+        v_additional_pause_ms := EXTRACT(EPOCH FROM (NOW() - v_pause_start)) * 1000;
+    END IF;
+
+    UPDATE public.event_settings
+    SET status = 'live',
+        pause_started_at = NULL,
+        total_pause_duration_ms = total_pause_duration_ms + v_additional_pause_ms,
+        updated_at = NOW()
+    WHERE id = 1;
+
+    RETURN jsonb_build_object('success', true, 'status', 'live', 'message', 'Event resumed successfully.');
+END;
+$$;
+
+DROP FUNCTION IF EXISTS public.admin_end_event(VARCHAR);
+DROP FUNCTION IF EXISTS public.admin_end_event;
+CREATE OR REPLACE FUNCTION public.admin_end_event(
+    p_admin_token VARCHAR
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+BEGIN
+    RETURN public.admin_set_event_status(p_admin_token, 'finished');
+END;
+$$;
+
+-- -----------------------------------------------------------------------------
+-- 15. REVOKE UNNECESSARY EXECUTION AND GRANT SPECIFIC ROLES
+-- -----------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.admin_custom_login(VARCHAR, VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_custom_login(VARCHAR, VARCHAR) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_custom_logout(VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_custom_logout(VARCHAR) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_set_event_status(VARCHAR, VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_set_event_status(VARCHAR, VARCHAR) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_start_event(VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_start_event(VARCHAR) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_pause_event(VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_pause_event(VARCHAR) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_resume_event(VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_resume_event(VARCHAR) TO anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_end_event(VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.admin_end_event(VARCHAR) TO anon, authenticated;
+
 REVOKE ALL ON FUNCTION public.admin_set_team_credentials(VARCHAR, UUID, VARCHAR, VARCHAR) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.admin_set_team_credentials(VARCHAR, UUID, VARCHAR, VARCHAR) TO anon, authenticated;
 
@@ -4701,3 +4970,27 @@ REVOKE ALL ON FUNCTION public.admin_regenerate_event_qr_tokens(VARCHAR, VARCHAR)
 GRANT EXECUTE ON FUNCTION public.admin_regenerate_event_qr_tokens(VARCHAR, VARCHAR) TO anon, authenticated;
 
 COMMENT ON TABLE public.teams IS 'Participant teams with admin-managed credentials (username + bcrypt passcode_hash)';
+
+-- Ensure event_settings and teams are published to Supabase Realtime
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_publication_tables 
+            WHERE pubname = 'supabase_realtime' AND tablename = 'event_settings'
+        ) THEN
+            ALTER PUBLICATION supabase_realtime ADD TABLE public.event_settings;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_publication_tables 
+            WHERE pubname = 'supabase_realtime' AND tablename = 'teams'
+        ) THEN
+            ALTER PUBLICATION supabase_realtime ADD TABLE public.teams;
+        END IF;
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    NULL;
+END;
+$$;
+

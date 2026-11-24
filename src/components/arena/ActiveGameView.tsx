@@ -13,6 +13,7 @@ import { useGameStore } from '../../store/gameStore';
 import { useTimer } from '../../hooks/useTimer';
 import { useAntiCheat } from '../../hooks/useAntiCheat';
 import { ViolationManager, type WarningConfig } from '../../services/violationManager';
+import { QuestionRegistry } from '../../features/questions';
 import {
   MapPin,
   QrCode,
@@ -159,8 +160,8 @@ export function ActiveGameView({
 
   const puzzleSolved = currentProgress?.puzzleSolved ?? false;
   const riddleClueText =
-    currentProgress?.riddleRevealed ||
     assignedLocation?.riddleClue ||
+    QuestionRegistry.getRiddleForLocation(assignedLocation?.id || currentRound)?.riddleClue ||
     currentPuzzle?.riddleClue ||
     currentPuzzle?.riddleText ||
     'Navigate to your assigned physical location on campus to scan the station QR code.';
@@ -298,43 +299,59 @@ export function ActiveGameView({
           )}
         </div>
 
-        {/* 1. Location Riddle Section (Displayed when participant reaches assigned station) */}
-        <div className="bg-arena-card border border-arena-border rounded-2xl p-4 sm:p-5 shadow-lg space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-electric-cyan/15 border border-electric-cyan/30 flex items-center justify-center text-electric-cyan shrink-0">
-                <MapPin className="w-5 h-5" />
-              </div>
-              <div>
-                <span className="text-[10px] font-mono uppercase tracking-widest text-electric-cyan font-bold block">
-                  Station #{assignedLocation?.locationNumber || currentRound}
-                </span>
-                <h3 className="text-sm font-bold text-white">
-                  {assignedLocation?.name || `Checkpoint Station #${currentRound}`}
-                </h3>
-              </div>
-            </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-arena-panel text-electric-amber border border-electric-amber/30">
-              Location Riddle
-            </span>
-          </div>
-
-          <div className="p-3.5 rounded-xl bg-arena-panel/90 border border-arena-border text-xs sm:text-sm text-zinc-100 font-sans leading-relaxed whitespace-pre-wrap">
-            <p className="italic text-white">{riddleClueText}</p>
-          </div>
-        </div>
-
-        {/* 2. Round Challenge View (Question solved using supported type) */}
+        {/* 1. Round Challenge View (Question solved using supported type) */}
         <div className="space-y-3">
           <PuzzleRenderer
             puzzle={currentPuzzle}
             isSolved={puzzleSolved}
             onSolved={() => {
-              success('Challenge Solved!', 'Station QR scanner unlocked below.');
+              success('Challenge Solved!', 'Station Location Riddle and QR scanner unlocked below.');
             }}
             onSubmitAnswer={handlePuzzleSubmit}
           />
         </div>
+
+        {/* 2. Location Riddle Section (HIDDEN until question is solved, revealed immediately upon solve or #007) */}
+        {puzzleSolved ? (
+          <div className="bg-arena-card border-2 border-electric-cyan/50 rounded-2xl p-4 sm:p-5 shadow-[0_0_35px_rgba(0,242,254,0.2)] space-y-3 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-electric-cyan/15 border border-electric-cyan/40 flex items-center justify-center text-electric-cyan shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-electric-cyan font-bold block">
+                    Station #{assignedLocation?.locationNumber || currentRound} &bull; Location Riddle Unlocked
+                  </span>
+                  <h3 className="text-sm font-bold text-white">
+                    {assignedLocation?.name || `Checkpoint Station #${currentRound}`}
+                  </h3>
+                </div>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 font-bold">
+                <CheckCircle2 className="w-3 h-3" />
+                <span>Riddle Revealed</span>
+              </span>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-arena-panel/90 border border-arena-border text-xs sm:text-sm text-zinc-100 font-sans leading-relaxed whitespace-pre-wrap">
+              <p className="italic text-white font-medium">{riddleClueText}</p>
+            </div>
+            <p className="text-[11px] font-mono text-arena-muted">
+              Read the clue above, navigate to this physical campus checkpoint, and scan the placard QR code below.
+            </p>
+          </div>
+        ) : (
+          <div className="bg-arena-card/60 border border-arena-border/60 rounded-2xl p-3.5 sm:p-4 text-center space-y-1.5 opacity-80">
+            <div className="flex items-center justify-center gap-2 text-xs font-mono text-arena-muted">
+              <Lock className="w-4 h-4 text-electric-amber" />
+              <span>Station #{assignedLocation?.locationNumber || currentRound} Location Riddle Locked</span>
+            </div>
+            <p className="text-[11px] text-arena-muted">
+              Correctly solve the challenge above (or use bypass) to reveal this station's location riddle.
+            </p>
+          </div>
+        )}
 
         {/* 3. Station QR Verification Button (Unlocked after solving challenge) */}
         {puzzleSolved && (
@@ -383,7 +400,7 @@ export function ActiveGameView({
 
           {/* Compact Progress Tracker */}
           <div className="pt-0.5">
-            <ProgressTracker currentRound={currentRound} totalRounds={config.totalRounds || 10} />
+            <ProgressTracker currentRound={currentRound} totalRounds={config.totalRounds || 9} />
           </div>
         </div>
       </div>
