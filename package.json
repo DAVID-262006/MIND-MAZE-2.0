@@ -8,12 +8,13 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "tsx src/test/arenaCore.test.ts && tsx src/test/multiFormatPuzzle.test.ts && tsx src/test/spaRouting.test.ts && tsx src/test/databaseDeploymentGate.test.ts && tsx src/test/antiCheatLockdown.test.ts && tsx src/test/questionEngine.test.ts && tsx src/test/securityAudit.test.ts && tsx src/test/adminAndGameplayModifications.test.ts && tsx src/test/frontendQuestionEngine.test.ts && tsx src/test/universalCheatCode.test.ts && tsx src/test/gameplayFlowAndSync.test.ts && tsx src/test/finalGameplayAndPersistence.test.ts"
+    "test": "tsx src/test/arenaCore.test.ts && tsx src/test/multiFormatPuzzle.test.ts && tsx src/test/spaRouting.test.ts && tsx src/test/databaseDeploymentGate.test.ts && tsx src/test/antiCheatLockdown.test.ts && tsx src/test/questionEngine.test.ts && tsx src/test/securityAudit.test.ts && tsx src/test/adminAndGameplayModifications.test.ts && tsx src/test/frontendQuestionEngine.test.ts && tsx src/test/universalCheatCode.test.ts && tsx src/test/gameplayFlowAndSync.test.ts && tsx src/test/finalGameplayAndPersistence.test.ts && tsx src/test/questionPdfExport.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.119.0",
     "clsx": "^2.1.1",
     "html5-qrcode": "^2.3.8",
+    "jspdf": "^4.2.1",
     "lucide-react": "^0.460.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",

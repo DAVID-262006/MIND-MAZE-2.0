@@ -15,7 +15,9 @@ import {
   Sparkles,
   AlertCircle,
   Package,
-  Key
+  Key,
+  Download,
+  Loader2
 } from 'lucide-react';
 import { useToast } from '../ui/Toast';
 import { useGameStore } from '../../store/gameStore';
@@ -23,16 +25,18 @@ import { PuzzleRenderer } from '../arena/PuzzleRenderer';
 import { AnswerValidator } from '../../services/answerEngine';
 import { ConfigPackageManagerModal } from './ConfigPackageManagerModal';
 import { QuestionRegistry, mapQuestionToRiddle } from '../../features/questions';
+import { QuestionPdfExportService } from '../../services/questionPdfExportService';
 import type { Riddle, PuzzleType, ThreePartResult } from '../../types';
 
 export function AdminPuzzlesTab() {
-  const { riddles, saveRiddle, deleteRiddle, adminRole, config, updateConfig } = useGameStore();
+  const { riddles, saveRiddle, deleteRiddle, adminRole, config, updateConfig, locations } = useGameStore();
   const { success, error: toastError, warning } = useToast();
   const isSuperadminOrAdmin = adminRole === 'superadmin' || adminRole === 'admin';
 
   const [editingRiddle, setEditingRiddle] = useState<Riddle | null>(null);
   const [activeModalTab, setActiveModalTab] = useState<'edit' | 'preview'>('edit');
   const [isPkgModalOpen, setIsPkgModalOpen] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   // Form states
   const [formRound, setFormRound] = useState<number>(1);
@@ -197,7 +201,38 @@ export function AdminPuzzlesTab() {
         </div>
 
         {isSuperadminOrAdmin && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              icon={isExportingPdf ? <Loader2 className="w-4 h-4 animate-spin text-electric-cyan" /> : <Download className="w-4 h-4 text-electric-cyan" />}
+              onClick={async () => {
+                if (isExportingPdf) return;
+                setIsExportingPdf(true);
+                try {
+                  const res = await QuestionPdfExportService.exportQuestionsAndAnswersPdf({
+                    isDraft: config.status === 'ready',
+                    versionLabel: 'v2.0-CHAMPIONSHIP',
+                    eventName: config.title || 'MIND MAZE 2.0',
+                    locations,
+                  });
+                  if (res.success) {
+                    success('PDF Export Complete', `Generated and downloaded ${res.filename}`);
+                  } else {
+                    toastError('Export Failed', res.error || 'Failed to generate questions PDF.');
+                  }
+                } catch (err: unknown) {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  toastError('Export Error', msg);
+                } finally {
+                  setIsExportingPdf(false);
+                }
+              }}
+              disabled={isExportingPdf}
+              className="text-xs font-mono font-bold border-electric-cyan/40 hover:border-electric-cyan text-white"
+            >
+              {isExportingPdf ? 'Generating PDF...' : 'Export PDF (Q&A)'}
+            </Button>
             <Button
               size="sm"
               variant="secondary"
@@ -205,7 +240,7 @@ export function AdminPuzzlesTab() {
               onClick={() => setIsPkgModalOpen(true)}
               className="text-xs font-mono font-bold"
             >
-              Distribute / Export
+              Distribute / JSON
             </Button>
             <Button
               size="sm"
