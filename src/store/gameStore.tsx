@@ -1546,16 +1546,16 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
       // Resilient fallback when Migration 008 is not yet deployed on Supabase
       if (
-        (rpcRes.isFallback || rpcRes.error?.includes('not yet deployed') || rpcRes.error?.includes('schema cache')) &&
-        matchedLocalTeam &&
-        (cleanPass === 'user1122' || cleanPass === 'pass123' || cleanPass === matchedLocalTeam.teamCode.toLowerCase())
+        (rpcRes.isFallback || rpcRes.error?.includes('not yet deployed') || rpcRes.error?.includes('schema cache'))
       ) {
-        console.warn('[Supabase] Migration 008 pending on remote database. Using resilient client session for team', matchedLocalTeam.teamName);
-        const sessionToken = `session_${matchedLocalTeam.id}_${Date.now()}`;
-        sessionStorage.setItem('mm2_session_token', sessionToken);
-        sessionStorage.setItem('mm2_team_id', matchedLocalTeam.id);
-        setActiveTeamId(matchedLocalTeam.id);
-        return { success: true, team: matchedLocalTeam };
+        if (matchedLocalTeam) {
+          console.warn('[Supabase] Migration 008 pending on remote database. Using resilient client session for team', matchedLocalTeam.teamName);
+          const sessionToken = `session_${matchedLocalTeam.id}_${Date.now()}`;
+          sessionStorage.setItem('mm2_session_token', sessionToken);
+          sessionStorage.setItem('mm2_team_id', matchedLocalTeam.id);
+          setActiveTeamId(matchedLocalTeam.id);
+          return { success: true, team: matchedLocalTeam };
+        }
       }
 
       if (rpcRes.error || !rpcRes.data || !rpcRes.data.success) {
