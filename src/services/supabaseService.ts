@@ -146,8 +146,16 @@ export class SupabaseService {
       return rpcRes;
     }
 
-    // 2. Legacy fallback if Migration 008 is not yet deployed on Supabase (older migrations 002-006)
-    if (rpcRes.isFallback || rpcRes.error?.includes('not yet deployed') || rpcRes.error?.includes('schema cache')) {
+    // 2. Legacy fallback ONLY if the RPC error is an actual schema/parameter mismatch
+    // (e.g. older migration where login_team accepted p_team_code instead of p_username)
+    // IMPORTANT: If login_team returned a business rejection (e.g. "ACCOUNT_LOCKED" or
+    // "Invalid team username or password"), do NOT call legacy login_team, as that would
+    // fail schema matching and overwrite the real error with a confusing "Migration pending" message.
+    const isSignatureMismatch =
+      rpcRes.error?.includes('Could not find the function public.login_team') &&
+      rpcRes.error?.includes('schema cache');
+
+    if (isSignatureMismatch) {
       const legacyRes = await this.callRpc<{
         success: boolean;
         team_id: string;
