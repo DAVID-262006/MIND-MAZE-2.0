@@ -330,13 +330,14 @@ export function AdminLiveMonitoringTab() {
                 <th className="py-3 px-4 text-center">Q Started At</th>
                 <th className="py-3 px-4 text-center">Q Solved At</th>
                 <th className="py-3 px-4 text-center">Solve Duration</th>
+                <th className="py-3 px-4 text-center">Location Completed</th>
                 <th className="py-3 px-4">Last Activity</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-arena-border/50">
               {filteredTeams.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-arena-muted font-mono text-xs">
+                  <td colSpan={10} className="py-8 text-center text-arena-muted font-mono text-xs">
                     {teams.length === 0 
                       ? 'No teams registered yet. Use Teams tab or Team Credentials tab to add teams.'
                       : 'No teams match the selected filter criteria.'}
@@ -481,6 +482,47 @@ export function AdminLiveMonitoringTab() {
                             );
                           }
                         })()}
+                      </td>
+
+                      {/* Separate explicit column: Q Started At */}
+                      <td className="py-3 px-4 text-center whitespace-nowrap text-arena-muted">
+                        {(team.prog as any)?.questionStartedAt ? (
+                          <span className="text-white font-mono">{formatTimestamp((team.prog as any)?.questionStartedAt)}</span>
+                        ) : (
+                          <span className="text-arena-muted font-mono">—</span>
+                        )}
+                      </td>
+
+                      {/* Separate explicit column: Q Solved At */}
+                      <td className="py-3 px-4 text-center whitespace-nowrap text-arena-muted">
+                        {(team.prog as any)?.questionSolvedAt ? (
+                          <span className="text-emerald-400 font-mono font-bold">{formatTimestamp((team.prog as any)?.questionSolvedAt)}</span>
+                        ) : (
+                          <span className="text-arena-muted font-mono">—</span>
+                        )}
+                      </td>
+
+                      {/* Separate explicit column: Solve Duration */}
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        {(team.prog as any)?.questionDurationMs != null ? (
+                          <span className="text-emerald-300 font-mono font-bold">{formatDuration((team.prog as any)?.questionDurationMs)}</span>
+                        ) : (
+                          <span className="text-arena-muted font-mono">—</span>
+                        )}
+                      </td>
+
+                      {/* Location Completed Column */}
+                      <td className="py-3 px-4 text-center whitespace-nowrap">
+                        {team.prog?.qrScanned ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-teal-400 font-bold px-2 py-0.5 rounded bg-teal-500/10 border border-teal-500/30">
+                            <QrCode className="w-3 h-3" />
+                            <span>COMPLETED</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-arena-muted px-2 py-0.5 rounded bg-zinc-800/40 border border-arena-border">
+                            <span>PENDING</span>
+                          </span>
+                        )}
                       </td>
 
                       {/* Last Activity Timestamp */}

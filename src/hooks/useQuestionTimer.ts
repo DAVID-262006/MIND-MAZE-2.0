@@ -65,7 +65,8 @@ export function useQuestionTimer({
 }: UseQuestionTimerOptions): UseQuestionTimerResult {
   const [status, setStatus] = useState<QuestionTimerStatus>(() => {
     if (isSolved) return 'stopped';
-    if (questionStartedAt) return 'running';
+    const localStart = typeof localStorage !== 'undefined' ? localStorage.getItem(`mm2_q_start_${roundNumber}`) : null;
+    if (questionStartedAt || localStart) return 'running';
     return 'idle';
   });
 
@@ -74,10 +75,21 @@ export function useQuestionTimer({
     if (isSolved && questionStartedAt && questionSolvedAt) {
       return new Date(questionSolvedAt).getTime() - new Date(questionStartedAt).getTime();
     }
+    const localStart = typeof localStorage !== 'undefined' ? localStorage.getItem(`mm2_q_start_${roundNumber}`) : null;
+    const startStr = questionStartedAt || localStart;
+    if (startStr) {
+      return Math.max(0, Date.now() - new Date(startStr).getTime());
+    }
     return 0;
   });
 
-  const [startedAt, setStartedAt] = useState<string | null>(questionStartedAt || null);
+  const [startedAt, setStartedAt] = useState<string | null>(() => {
+    if (questionStartedAt) return questionStartedAt;
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(`mm2_q_start_${roundNumber}`);
+    }
+    return null;
+  });
   const [stoppedAt, setStoppedAt] = useState<string | null>(questionSolvedAt || null);
 
   // Track whether we've already reported the start to Supabase this session
@@ -147,6 +159,9 @@ export function useQuestionTimer({
     if (status !== 'idle') return;
 
     const now = new Date().toISOString();
+    try {
+      localStorage.setItem(`mm2_q_start_${roundNumber}`, now);
+    } catch {}
     setStartedAt(now);
     setStatus('running');
     setElapsedMs(0);
@@ -165,10 +180,13 @@ export function useQuestionTimer({
     if (status !== 'running') return;
     clearTimerInterval();
     const now = new Date().toISOString();
+    try {
+      localStorage.setItem(`mm2_q_stop_${roundNumber}`, now);
+    } catch {}
     setStoppedAt(now);
     setStatus('stopped');
     // Elapsed is already up to date from the last tick
-  }, [status, clearTimerInterval]);
+  }, [status, roundNumber, clearTimerInterval]);
 
   const formattedTime = formatElapsed(elapsedMs);
 

@@ -1,9 +1,11 @@
 import React from 'react';
 import { Button } from '../ui/Button';
 import { StatusBadge } from '../ui/StatusBadge';
-import { Compass, Clock, ShieldCheck, Maximize2, LogOut } from 'lucide-react';
+import { Compass, Clock, ShieldCheck, Maximize2, LogOut, RefreshCw } from 'lucide-react';
 import type { Team } from '../../types';
 import { useFullscreen } from '../../hooks/useFullscreen';
+import { useGameStore } from '../../store/gameStore';
+import { useToast } from '../ui/Toast';
 
 export interface LobbyViewProps {
   team: Team;
@@ -13,6 +15,8 @@ export interface LobbyViewProps {
 
 export function LobbyView({ team, onStartGame, onLogout }: LobbyViewProps) {
   const { isFullscreen, enterFullscreen } = useFullscreen();
+  const { hasConfigUpdate, publishedConfigVersion, applyPublishedConfig } = useGameStore();
+  const { success, error: toastError } = useToast();
 
   return (
     <div className="min-h-[85vh] flex flex-col justify-center items-center px-4 py-6 max-w-md mx-auto w-full">
@@ -30,6 +34,32 @@ export function LobbyView({ team, onStartGame, onLogout }: LobbyViewProps) {
             TEAM IDENTIFIER: {team.teamCode}
           </p>
         </div>
+
+        {/* Published Configuration Update Alert */}
+        {hasConfigUpdate && (
+          <div className="bg-gradient-to-r from-blue-900/60 to-cyan-900/60 border border-electric-cyan/40 p-3 rounded-xl flex items-center justify-between gap-3 text-left shadow-lg">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-electric-cyan animate-ping shrink-0" />
+              <span className="text-xs text-white font-mono">
+                New Configuration Available (v{publishedConfigVersion})
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const res = applyPublishedConfig();
+                if (res.success) {
+                  success('Configuration Updated', 'Loaded latest question and station setup.');
+                } else {
+                  toastError('Update Error', res.error || 'Failed to apply update.');
+                }
+              }}
+              className="px-3 py-1 bg-electric-cyan text-black text-xs font-mono font-bold rounded-lg hover:bg-cyan-300 transition-colors shrink-0"
+            >
+              Update
+            </button>
+          </div>
+        )}
 
         {/* Fullscreen Quick Action if exited */}
         {!isFullscreen && (

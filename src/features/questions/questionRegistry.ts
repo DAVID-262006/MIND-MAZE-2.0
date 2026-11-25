@@ -22,6 +22,8 @@ import { BASELINE_LOCATION_RIDDLES } from './locationRiddles';
 
 const QUESTIONS_STORAGE_KEY = 'mm2_frontend_questions_v2';
 const RIDDLES_STORAGE_KEY = 'mm2_frontend_location_riddles_v2';
+const CONFIG_VERSION_STORAGE_KEY = 'mm2_frontend_config_version_v2';
+const PUBLISHED_PACKAGE_STORAGE_KEY = 'mm2_published_config_package_v2';
 
 export function mapQuestionToRiddle(q: QuestionDefinition): Riddle {
   if (q.questionType === 'CODE_BASED') {
@@ -31,16 +33,23 @@ export function mapQuestionToRiddle(q: QuestionDefinition): Riddle {
       title: q.title,
       descriptionMd: q.descriptionMd,
       puzzleType: 'CODE_BASED',
-      acceptedAnswers: (q.testCases || []).map((tc) => tc.expectedOutput).filter(Boolean),
+      acceptedAnswers: [],
       caseSensitive: false,
       normalizeWhitespace: true,
       maxAttempts: q.maxAttempts || 10,
       hints: q.hints || [],
       published: true,
       isActive: true,
-      // The starterCode field now stores the CODE SNIPPET to display (read-only)
-      codeSnippet: q.starterCode,
-      codeLanguage: q.language || 'python',
+      starterCode: {
+        javascript: q.starterCode,
+      },
+      sampleCases: (q.testCases || []).map((tc) => ({
+        id: tc.id,
+        input: tc.input,
+        expectedOutput: tc.expectedOutput,
+        isHidden: tc.isHidden,
+      })),
+      codeLanguage: q.language || 'javascript',
     };
   } else {
     return {
@@ -142,27 +151,34 @@ export class QuestionRegistry {
     return [...BASELINE_LOCATION_RIDDLES];
   }
 
+  private static memoryStore: Map<string, string> = new Map();
+
   private static getStorageItem(key: string): string | null {
-    if (typeof localStorage === 'undefined') return null;
-    try {
-      return localStorage.getItem(key);
-    } catch {
-      return null;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const val = localStorage.getItem(key);
+        if (val !== null) return val;
+      } catch {}
     }
+    return this.memoryStore.get(key) || null;
   }
 
   private static setStorageItem(key: string, value: string): void {
-    if (typeof localStorage === 'undefined') return;
-    try {
-      localStorage.setItem(key, value);
-    } catch {}
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(key, value);
+      } catch {}
+    }
+    this.memoryStore.set(key, value);
   }
 
   private static removeStorageItem(key: string): void {
-    if (typeof localStorage === 'undefined') return;
-    try {
-      localStorage.removeItem(key);
-    } catch {}
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem(key);
+      } catch {}
+    }
+    this.memoryStore.delete(key);
   }
 
   /**
@@ -224,6 +240,7 @@ export class QuestionRegistry {
     all.sort((a, b) => a.roundNumber - b.roundNumber);
     this.cachedQuestions = all;
     this.setStorageItem(QUESTIONS_STORAGE_KEY, JSON.stringify(all));
+    this.incrementConfigVersion();
   }
 
   /**
@@ -293,6 +310,49 @@ export class QuestionRegistry {
     }
     this.cachedRiddles = all;
     this.setStorageItem(RIDDLES_STORAGE_KEY, JSON.stringify(all));
+    this.incrementConfigVersion();
+  }
+
+  /**
+   * Get the current local configuration version.
+   */
+  public static getConfigVersion(): number {
+    const raw = this.getStorageItem(CONFIG_VERSION_STORAGE_KEY);
+    if (!raw) return 1;
+    const num = parseInt(raw, 10);
+    return isNaN(num) || num < 1 ? 1 : num;
+  }
+
+  /**
+   * Increment the local configuration version.
+   */
+  public static incrementConfigVersion(): number {
+    const next = this.getConfigVersion() + 1;
+    this.setStorageItem(CONFIG_VERSION_STORAGE_KEY, next.toString());
+    return next;
+  }
+
+  /**
+   * Set explicit configuration version.
+   */
+  public static setConfigVersion(version: number): void {
+    this.setStorageItem(CONFIG_VERSION_STORAGE_KEY, Math.max(1, version).toString());
+  }
+
+  /**
+   * Calculate a deterministic hash of current questions and location riddles.
+   */
+  public static computeConfigHash(): string {
+    const questions = this.getAllQuestions();
+    const riddles = this.getAllRiddles();
+    const content = JSON.stringify({ questions, riddles });
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash |= 0;
+    }
+    return Math.abs(hash).toString(16).padStart(8, '0');
   }
 
   /**
@@ -302,6 +362,8 @@ export class QuestionRegistry {
   public static exportConfigPackage(): QuestionConfigPackage {
     return {
       formatVersion: '2.0',
+      configVersion: this.getConfigVersion(),
+      configHash: this.computeConfigHash(),
       exportedAt: new Date().toISOString(),
       eventTitle: 'MIND MAZE 2.0 Championship',
       totalRounds: 9,
@@ -309,6 +371,29 @@ export class QuestionRegistry {
       questions: this.getAllQuestions(),
       locationRiddles: this.getAllRiddles(),
     };
+  }
+
+  /**
+   * Store the latest published config package into local distribution storage
+   * (e.g. for cross-tab broadcast or offline sync).
+   */
+  public static publishConfigPackage(): QuestionConfigPackage {
+    const pkg = this.exportConfigPackage();
+    this.setStorageItem(PUBLISHED_PACKAGE_STORAGE_KEY, JSON.stringify(pkg));
+    return pkg;
+  }
+
+  /**
+   * Get the published config package if available.
+   */
+  public static getPublishedPackage(): QuestionConfigPackage | null {
+    const raw = this.getStorageItem(PUBLISHED_PACKAGE_STORAGE_KEY);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as QuestionConfigPackage;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -332,6 +417,9 @@ export class QuestionRegistry {
 
     this.setStorageItem(QUESTIONS_STORAGE_KEY, JSON.stringify(pkg.questions));
     this.setStorageItem(RIDDLES_STORAGE_KEY, JSON.stringify(pkg.locationRiddles));
+    if (pkg.configVersion) {
+      this.setConfigVersion(pkg.configVersion);
+    }
     this.cachedQuestions = pkg.questions;
     this.cachedRiddles = pkg.locationRiddles;
     return { success: true };
@@ -343,6 +431,8 @@ export class QuestionRegistry {
   public static resetToDefaults(): void {
     this.removeStorageItem(QUESTIONS_STORAGE_KEY);
     this.removeStorageItem(RIDDLES_STORAGE_KEY);
+    this.removeStorageItem(CONFIG_VERSION_STORAGE_KEY);
+    this.removeStorageItem(PUBLISHED_PACKAGE_STORAGE_KEY);
     this.cachedQuestions = null;
     this.cachedRiddles = null;
   }

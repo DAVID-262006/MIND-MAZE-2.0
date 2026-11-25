@@ -11,15 +11,30 @@
 -- Architecture rules strictly upheld:
 --   • NO question content, answers, code snippets or riddles stored here
 --   • Only operational timestamps and status flags
+--   • Validates team session against public.teams.active_session_token_hash
+--   • Validates admin session via public.verify_admin_token
 -- ============================================================
+
+SET search_path = public, extensions, pg_temp;
 
 -- Add question timer columns to team_progress (idempotent)
 ALTER TABLE public.team_progress
   ADD COLUMN IF NOT EXISTS question_started_at   TIMESTAMPTZ DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS question_solved_at    TIMESTAMPTZ DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS question_duration_ms  BIGINT      DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS question_status       TEXT        NOT NULL DEFAULT 'not_started'
-    CHECK (question_status IN ('not_started', 'in_progress', 'solved'));
+  ADD COLUMN IF NOT EXISTS question_status       TEXT        NOT NULL DEFAULT 'not_started';
+
+-- Add check constraint safely if not present
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_team_progress_question_status'
+  ) THEN
+    ALTER TABLE public.team_progress
+      ADD CONSTRAINT chk_team_progress_question_status
+      CHECK (question_status IN ('not_started', 'in_progress', 'solved'));
+  END IF;
+END $$;
 
 -- Index for fast admin dashboard lookups on question_status
 CREATE INDEX IF NOT EXISTS idx_team_progress_question_status
@@ -28,7 +43,7 @@ CREATE INDEX IF NOT EXISTS idx_team_progress_question_status
 -- ============================================================
 -- RPC: record_question_started(p_session_token, p_round_number)
 -- Called by participant when a question first becomes visible.
--- Idempotent: does NOT reset the timer if already in_progress.
+-- Idempotent: does NOT reset the timer if already in_progress or solved.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.record_question_started(
   p_session_token TEXT,
@@ -37,21 +52,27 @@ CREATE OR REPLACE FUNCTION public.record_question_started(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
-  v_team_id  UUID;
-  v_now      TIMESTAMPTZ := now();
-  v_existing RECORD;
+  v_token_hash VARCHAR;
+  v_team_id    UUID;
+  v_now        TIMESTAMPTZ := now();
+  v_existing   RECORD;
 BEGIN
-  -- Validate session
-  SELECT team_id INTO v_team_id
-  FROM   public.team_sessions
-  WHERE  session_token = p_session_token
-    AND  expires_at > v_now;
+  IF p_session_token IS NULL OR p_session_token = '' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Session token required.');
+  END IF;
+
+  v_token_hash := encode(extensions.digest(p_session_token, 'sha256'), 'hex');
+
+  -- Validate team session against public.teams
+  SELECT id INTO v_team_id
+  FROM   public.teams
+  WHERE  active_session_token_hash = v_token_hash;
 
   IF v_team_id IS NULL THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Invalid or expired session');
+    RETURN jsonb_build_object('success', false, 'error', 'INVALID_SESSION', 'message', 'Invalid or expired session.');
   END IF;
 
   -- Check existing progress row
@@ -62,7 +83,6 @@ BEGIN
 
   -- Only set started_at if not already started / solved
   IF v_existing IS NULL THEN
-    -- Upsert progress row with question timer start
     INSERT INTO public.team_progress
       (team_id, round_number, question_status, question_started_at,
        puzzle_solved, qr_scanned, attempts_count,
@@ -73,7 +93,7 @@ BEGIN
        v_now, v_now + INTERVAL '5 minutes', v_now + INTERVAL '5 minutes 30 seconds')
     ON CONFLICT (team_id, round_number)
     DO UPDATE SET
-      question_status    = 'in_progress',
+      question_status     = 'in_progress',
       question_started_at = EXCLUDED.question_started_at
     WHERE team_progress.question_status = 'not_started';
   ELSIF v_existing.question_status = 'not_started' THEN
@@ -93,8 +113,8 @@ END;
 $$;
 
 -- ============================================================
--- RPC: record_question_solved(p_session_token, p_round_number)
--- Updated to also stamp question_solved_at and duration.
+-- RPC: record_puzzle_solved(p_session_token, p_round_number)
+-- Updated to also stamp question_solved_at and calculate duration accurately.
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.record_puzzle_solved(
   p_session_token TEXT,
@@ -103,21 +123,27 @@ CREATE OR REPLACE FUNCTION public.record_puzzle_solved(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
+  v_token_hash    VARCHAR;
   v_team_id       UUID;
   v_now           TIMESTAMPTZ := now();
   v_started_at    TIMESTAMPTZ;
   v_duration_ms   BIGINT;
 BEGIN
-  SELECT team_id INTO v_team_id
-  FROM   public.team_sessions
-  WHERE  session_token = p_session_token
-    AND  expires_at > v_now;
+  IF p_session_token IS NULL OR p_session_token = '' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Session token required.');
+  END IF;
+
+  v_token_hash := encode(extensions.digest(p_session_token, 'sha256'), 'hex');
+
+  SELECT id INTO v_team_id
+  FROM   public.teams
+  WHERE  active_session_token_hash = v_token_hash;
 
   IF v_team_id IS NULL THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Invalid or expired session');
+    RETURN jsonb_build_object('success', false, 'error', 'INVALID_SESSION', 'message', 'Invalid or expired session.');
   END IF;
 
   -- Get question_started_at for duration calculation
@@ -137,16 +163,17 @@ BEGIN
   VALUES
     (v_team_id, p_round_number, true, v_now,
      'solved', COALESCE(v_started_at, v_now), v_now, v_duration_ms,
-     0, false,
+     1, false,
      v_now, v_now + INTERVAL '5 minutes', v_now + INTERVAL '5 minutes 30 seconds')
   ON CONFLICT (team_id, round_number)
   DO UPDATE SET
     puzzle_solved        = true,
-    puzzle_solved_at     = v_now,
+    puzzle_solved_at     = COALESCE(team_progress.puzzle_solved_at, v_now),
     question_status      = 'solved',
-    question_solved_at   = v_now,
-    question_duration_ms = v_duration_ms,
-    question_started_at  = COALESCE(team_progress.question_started_at, v_started_at, v_now);
+    question_solved_at   = COALESCE(team_progress.question_solved_at, v_now),
+    question_duration_ms = COALESCE(team_progress.question_duration_ms, v_duration_ms),
+    question_started_at  = COALESCE(team_progress.question_started_at, v_started_at, v_now),
+    attempts_count       = team_progress.attempts_count + 1;
 
   RETURN jsonb_build_object(
     'success', true,
@@ -168,33 +195,32 @@ CREATE OR REPLACE FUNCTION public.get_team_state(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
   v_team      RECORD;
   v_progress  RECORD;
   v_event     RECORD;
+  v_token_hash VARCHAR;
   v_now       TIMESTAMPTZ := now();
 BEGIN
-  -- Validate session
-  IF NOT EXISTS (
-    SELECT 1 FROM public.team_sessions
-    WHERE team_id = p_team_id
-      AND session_token = p_session_token
-      AND expires_at > v_now
-  ) THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Invalid or expired session');
+  IF p_session_token IS NULL OR p_session_token = '' THEN
+    RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Session token required.');
   END IF;
 
+  v_token_hash := encode(extensions.digest(p_session_token, 'sha256'), 'hex');
+
+  -- Validate session against teams table
   SELECT id, team_code, team_name, status, current_round,
          COALESCE(total_strikes, strikes, 0) AS total_strikes,
          started_at, completed_at, total_time_ms
   INTO   v_team
   FROM   public.teams
-  WHERE  id = p_team_id;
+  WHERE  id = p_team_id
+    AND  active_session_token_hash = v_token_hash;
 
   IF NOT FOUND THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Team not found');
+    RETURN jsonb_build_object('success', false, 'error', 'INVALID_SESSION', 'message', 'Team not found or session invalid.');
   END IF;
 
   SELECT status, event_started_at, round_duration_seconds,
@@ -237,18 +263,18 @@ BEGIN
     ),
     'current_progress', CASE WHEN v_progress IS NULL THEN NULL ELSE
       jsonb_build_object(
-        'round_number',       v_progress.round_number,
-        'puzzle_solved',      v_progress.puzzle_solved,
-        'puzzle_solved_at',   v_progress.puzzle_solved_at,
-        'qr_scanned',         v_progress.qr_scanned,
-        'qr_scanned_at',      v_progress.qr_scanned_at,
-        'attempts_count',     v_progress.attempts_count,
-        'round_started_at',   v_progress.round_started_at,
-        'deadline_at',        v_progress.deadline_at,
-        'grace_deadline_at',  v_progress.grace_deadline_at,
-        'status',             COALESCE(v_progress.status, 'in_progress'),
-        'riddle_revealed',    v_progress.riddle_revealed,
-        'question_status',    COALESCE(v_progress.question_status, 'not_started'),
+        'round_number',        v_progress.round_number,
+        'puzzle_solved',       v_progress.puzzle_solved,
+        'puzzle_solved_at',    v_progress.puzzle_solved_at,
+        'qr_scanned',          v_progress.qr_scanned,
+        'qr_scanned_at',       v_progress.qr_scanned_at,
+        'attempts_count',      v_progress.attempts_count,
+        'round_started_at',    v_progress.round_started_at,
+        'deadline_at',         v_progress.deadline_at,
+        'grace_deadline_at',   v_progress.grace_deadline_at,
+        'status',              COALESCE(v_progress.status, 'in_progress'),
+        'riddle_revealed',     v_progress.riddle_revealed,
+        'question_status',     COALESCE(v_progress.question_status, 'not_started'),
         'question_started_at', v_progress.question_started_at,
         'question_solved_at',  v_progress.question_solved_at,
         'question_duration_ms', v_progress.question_duration_ms
@@ -262,111 +288,113 @@ $$;
 -- Update admin_get_dashboard_data to include question timer fields
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.admin_get_dashboard_data(
-  p_admin_token TEXT
+  p_admin_token VARCHAR
 )
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions, pg_temp
 AS $$
 DECLARE
-  v_admin RECORD;
+  v_admin_role VARCHAR;
+  v_teams JSONB;
+  v_locations JSONB;
+  v_progress JSONB;
+  v_routes JSONB;
+  v_incidents JSONB;
 BEGIN
-  SELECT id, role INTO v_admin
-  FROM   public.admin_sessions
-  WHERE  session_token = p_admin_token
-    AND  expires_at > now()
-    AND  is_active = true;
-
-  IF NOT FOUND THEN
-    RETURN jsonb_build_object('success', false, 'error', 'Unauthorized: Invalid admin token');
+  v_admin_role := public.verify_admin_token(p_admin_token, ARRAY['superadmin', 'admin', 'marshal']);
+  IF v_admin_role IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'UNAUTHORIZED', 'message', 'Admin session required.');
   END IF;
 
-  RETURN jsonb_build_object(
-    'success', true,
-    'teams', (
-      SELECT jsonb_agg(
-        jsonb_build_object(
-          'id',                     t.id,
-          'team_code',              t.team_code,
-          'team_name',              t.team_name,
-          'username',               tc.username,
-          'credentials_configured', (tc.username IS NOT NULL),
-          'credentials_randomized', t.credentials_randomized,
-          'status',                 t.status,
-          'current_round',          t.current_round,
-          'total_strikes',          COALESCE(t.total_strikes, t.strikes, 0),
-          'started_at',             t.started_at,
-          'completed_at',           t.completed_at,
-          'total_time_ms',          t.total_time_ms,
-          'last_seen_at',           t.last_seen_at,
-          'elimination_reason',     t.elimination_reason,
-          'created_at',             t.created_at
-        )
-      )
-      FROM public.teams t
-      LEFT JOIN public.team_credentials tc ON tc.team_id = t.id
-    ),
-    'locations', (
-      SELECT jsonb_agg(
-        jsonb_build_object(
-          'id',              l.id,
-          'location_number', l.location_number,
-          'name',            l.name,
-          'description',     l.description,
-          'capacity',        l.capacity,
-          'active',          l.active
-        )
-      )
-      FROM public.locations l
-      ORDER BY l.location_number
-    ),
-    'routes', (
-      SELECT jsonb_agg(
-        jsonb_build_object(
-          'team_id',      r.team_id,
-          'round_number', r.round_number,
-          'location_id',  r.location_id
-        )
-      )
-      FROM public.team_routes r
-    ),
-    'progress', (
-      SELECT jsonb_agg(
-        jsonb_build_object(
-          'team_id',             tp.team_id,
-          'round_number',        tp.round_number,
-          'puzzle_solved',       tp.puzzle_solved,
-          'puzzle_solved_at',    tp.puzzle_solved_at,
-          'qr_scanned',          tp.qr_scanned,
-          'qr_scanned_at',       tp.qr_scanned_at,
-          'attempts_count',      tp.attempts_count,
-          'round_started_at',    tp.round_started_at,
-          'deadline_at',         tp.deadline_at,
-          'grace_deadline_at',   tp.grace_deadline_at,
-          'status',              tp.status,
-          'question_status',     COALESCE(tp.question_status, 'not_started'),
-          'question_started_at', tp.question_started_at,
-          'question_solved_at',  tp.question_solved_at,
-          'question_duration_ms',tp.question_duration_ms
-        )
-      )
-      FROM public.team_progress tp
-    ),
-    'incidents', (
-      SELECT jsonb_agg(
-        jsonb_build_object(
-          'id',         al.id,
-          'team_id',    al.team_id,
-          'event_type', al.event_type,
-          'details',    al.details,
-          'created_at', al.created_at
-        )
-      )
-      FROM public.audit_logs al
-      ORDER BY al.created_at DESC
-      LIMIT 500
+  -- Teams with credentials and last_seen_at
+  SELECT jsonb_agg(
+    jsonb_build_object(
+      'id',                     t.id,
+      'team_code',              t.team_code,
+      'team_name',              t.team_name,
+      'username',               t.username,
+      'credentials_configured', t.credentials_configured,
+      'credentials_randomized', t.credentials_randomized,
+      'status',                 t.status,
+      'current_round',          t.current_round,
+      'total_strikes',          COALESCE(t.total_strikes, t.strikes, 0),
+      'started_at',             t.started_at,
+      'completed_at',           t.completed_at,
+      'total_time_ms',          t.total_time_ms,
+      'last_seen_at',           t.last_seen_at,
+      'elimination_reason',     t.elimination_reason,
+      'created_at',             t.created_at
+    ) ORDER BY t.team_code
+  ) INTO v_teams FROM public.teams t;
+
+  -- Locations (active up to 9, without leaking QR tokens or riddles)
+  SELECT jsonb_agg(
+    jsonb_build_object(
+      'id',              l.id,
+      'location_number', l.location_number,
+      'name',            l.name,
+      'description',     l.description,
+      'capacity',        l.capacity,
+      'active',          l.active
+    ) ORDER BY l.location_number
+  ) INTO v_locations FROM public.locations l WHERE l.active = true AND l.location_number <= 9;
+
+  -- Routes
+  SELECT jsonb_agg(
+    jsonb_build_object(
+      'team_id',      r.team_id,
+      'round_number', r.round_number,
+      'location_id',  r.location_id
     )
+  ) INTO v_routes FROM public.team_routes r;
+
+  -- Progress records including question timer fields
+  SELECT jsonb_agg(
+    jsonb_build_object(
+      'team_id',             tp.team_id,
+      'round_number',        tp.round_number,
+      'puzzle_solved',       tp.puzzle_solved,
+      'puzzle_solved_at',    tp.puzzle_solved_at,
+      'qr_scanned',          tp.qr_scanned,
+      'qr_scanned_at',       tp.qr_scanned_at,
+      'attempts_count',      tp.attempts_count,
+      'round_started_at',    tp.round_started_at,
+      'deadline_at',         tp.deadline_at,
+      'grace_deadline_at',   tp.grace_deadline_at,
+      'status',              tp.status,
+      'question_status',     COALESCE(tp.question_status, 'not_started'),
+      'question_started_at', tp.question_started_at,
+      'question_solved_at',  tp.question_solved_at,
+      'question_duration_ms', tp.question_duration_ms
+    )
+  ) INTO v_progress FROM public.team_progress tp;
+
+  -- Incidents / audit logs
+  SELECT jsonb_agg(
+    jsonb_build_object(
+      'id',         al.id,
+      'team_id',    al.team_id,
+      'event_type', al.event_type,
+      'details',    al.details,
+      'created_at', al.created_at
+    )
+  ) INTO v_incidents
+  FROM (
+    SELECT id, team_id, event_type, details, created_at
+    FROM public.audit_logs
+    ORDER BY created_at DESC
+    LIMIT 500
+  ) al;
+
+  RETURN jsonb_build_object(
+    'success',   true,
+    'teams',     COALESCE(v_teams, '[]'::jsonb),
+    'locations', COALESCE(v_locations, '[]'::jsonb),
+    'routes',    COALESCE(v_routes, '[]'::jsonb),
+    'progress',  COALESCE(v_progress, '[]'::jsonb),
+    'incidents', COALESCE(v_incidents, '[]'::jsonb)
   );
 END;
 $$;
@@ -375,5 +403,4 @@ $$;
 GRANT EXECUTE ON FUNCTION public.record_question_started(TEXT, INTEGER) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.record_puzzle_solved(TEXT, INTEGER) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.get_team_state(UUID, TEXT) TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_get_dashboard_data(TEXT) TO anon, authenticated;
-
+GRANT EXECUTE ON FUNCTION public.admin_get_dashboard_data(VARCHAR) TO anon, authenticated;

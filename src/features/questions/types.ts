@@ -75,6 +75,8 @@ export interface LocalValidationResult {
 
 export interface QuestionConfigPackage {
   formatVersion: '2.0';
+  configVersion?: number;
+  configHash?: string;
   exportedAt: string;
   eventTitle: string;
   totalRounds: number;

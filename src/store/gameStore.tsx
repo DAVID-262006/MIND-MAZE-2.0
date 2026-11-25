@@ -40,6 +40,9 @@ interface GameContextType {
   adminRole: 'superadmin' | 'admin' | 'marshal' | null;
   leaderboard: LeaderboardEntry[];
   stationOccupancies: StationOccupancy[];
+  publishedConfigVersion: number;
+  hasConfigUpdate: boolean;
+  applyPublishedConfig: () => { success: boolean; error?: string };
 
   // Event controls
   startEvent: () => Promise<void> | void;
@@ -104,6 +107,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [routes, setRoutes] = useState<RouteAssignment[]>(() => StorageService.loadRoutes());
   const [progress, setProgress] = useState<TeamRoundProgress[]>(() => StorageService.loadProgress());
   const [incidents, setIncidents] = useState<AntiCheatIncident[]>(() => StorageService.loadIncidents());
+  const [publishedConfigVersion, setPublishedConfigVersion] = useState<number>(() => QuestionRegistry.getConfigVersion());
+  const [hasConfigUpdate, setHasConfigUpdate] = useState<boolean>(false);
 
   // Sessions
   const [activeTeamId, setActiveTeamId] = useState<string | null>(() => {
@@ -571,6 +576,45 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
     };
   }, [isAdminAuthenticated]);
+
+  // Check for published configuration package updates safely
+  const checkConfigVersion = useCallback(() => {
+    const published = QuestionRegistry.getPublishedPackage();
+    if (published && published.configVersion) {
+      setPublishedConfigVersion(published.configVersion);
+      if (published.configVersion > QuestionRegistry.getConfigVersion()) {
+        setHasConfigUpdate(true);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    checkConfigVersion();
+    const interval = setInterval(checkConfigVersion, 5000);
+    return () => clearInterval(interval);
+  }, [checkConfigVersion]);
+
+  // Apply published configuration updates safely without destroying progress or active question
+  const applyPublishedConfig = useCallback((): { success: boolean; error?: string } => {
+    const published = QuestionRegistry.getPublishedPackage();
+    if (!published) {
+      return { success: false, error: 'No published configuration package found.' };
+    }
+    const res = QuestionRegistry.importConfigPackage(published);
+    if (!res.success) {
+      return res;
+    }
+    setRiddles(QuestionRegistry.getAllQuestions().map(mapQuestionToRiddle));
+    setLocations((prev) =>
+      prev.map((loc) => ({
+        ...loc,
+        riddleClue: QuestionRegistry.getRiddleForLocation(loc.id)?.riddleClue || loc.riddleClue,
+      }))
+    );
+    setPublishedConfigVersion(published.configVersion || QuestionRegistry.getConfigVersion());
+    setHasConfigUpdate(false);
+    return { success: true };
+  }, []);
 
   // Active Team derived
   const activeTeam = useMemo(() => {
@@ -2081,6 +2125,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     adminRole,
     leaderboard,
     stationOccupancies,
+    publishedConfigVersion,
+    hasConfigUpdate,
+    applyPublishedConfig,
 
     startEvent,
     pauseEvent,

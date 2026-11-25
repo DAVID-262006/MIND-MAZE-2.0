@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Compass, User, AlertOctagon, ArrowRight, Play } from 'lucide-react';
+import { Compass, KeyRound, User, AlertOctagon, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { useFullscreen } from '../../hooks/useFullscreen';
 
@@ -10,10 +10,12 @@ export interface LoginViewProps {
 }
 
 export function LoginView({ onLoginSuccess }: LoginViewProps) {
-  const { enterAsParticipant, startParticipantGame } = useGameStore();
+  const { teams, loginTeam } = useGameStore();
   const { enterFullscreen } = useFullscreen();
 
-  const [playerName, setPlayerName] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -21,36 +23,31 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     e.preventDefault();
     setErrorMessage(null);
 
-    const cleanName = playerName.trim();
-    if (!cleanName) {
-      setErrorMessage('Please enter your name or team name to continue.');
+    const cleanUser = username.trim();
+    const cleanPass = password.trim();
+
+    if (!cleanUser) {
+      setErrorMessage('Please enter your team username or team code.');
+      return;
+    }
+
+    if (!cleanPass) {
+      setErrorMessage('Please enter your designated team password.');
       return;
     }
 
     setSubmitting(true);
-    try {
-      const res = await enterAsParticipant(cleanName);
-      if (!res.success || !res.team) {
-        setErrorMessage(res.error || 'Could not start game. Please try again.');
-        setSubmitting(false);
-        return;
-      }
+    const res = await loginTeam(cleanUser, cleanPass);
+    setSubmitting(false);
 
-      // Immediately start participant game
-      try {
-        localStorage.setItem(`mm2_team_started_${res.team.id}`, 'true');
-      } catch {}
-      await startParticipantGame(res.team.id);
-
-      // Attempt Fullscreen directly on user tap
-      await enterFullscreen().catch(() => {});
-      onLoginSuccess?.();
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setErrorMessage(msg);
-    } finally {
-      setSubmitting(false);
+    if (!res.success) {
+      setErrorMessage(res.error || 'Authentication failed. Please verify credentials.');
+      return;
     }
+
+    // Attempt Fullscreen directly on user tap
+    await enterFullscreen().catch(() => {});
+    onLoginSuccess?.();
   };
 
   return (
@@ -65,12 +62,12 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
             MIND MAZE 2.0
           </h1>
           <p className="text-[11px] font-mono tracking-widest text-electric-cyan uppercase mt-0.5">
-            PARTICIPANT ARENA
+            PARTICIPANT ARENA ACCESS
           </p>
         </div>
       </div>
 
-      {/* Participant Name Entrance Card */}
+      {/* Login Card */}
       <div className="w-full bg-arena-card border border-electric-cyan/30 rounded-2xl p-5 sm:p-6 shadow-2xl space-y-5">
         <form onSubmit={handleSubmit} className="space-y-4">
           {errorMessage && (
@@ -80,33 +77,53 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
             </div>
           )}
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             <Input
-              label="Enter Your Name / Team Name"
-              placeholder="e.g. Alex, Cyber Titans, Team Alpha"
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
+              label="Team Username"
+              placeholder="e.g. team01, alpha_centauri"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               leadingIcon={<User className="w-4 h-4" />}
               className="h-12 text-base font-mono"
-              autoCapitalize="words"
+              autoCapitalize="none"
               autoCorrect="off"
-              autoFocus
               required
             />
-            <p className="text-[11px] text-arena-muted font-mono">
-              No password needed. Enter your name and begin the tournament immediately.
-            </p>
+
+            <div>
+              <label className="block text-xs font-mono font-bold text-arena-muted uppercase tracking-wider mb-1">
+                Team Password
+              </label>
+              <div className="relative">
+                <Input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="Enter administrator-assigned password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  leadingIcon={<KeyRound className="w-4 h-4" />}
+                  className="h-12 text-base font-mono pr-11"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-3.5 text-arena-muted hover:text-white"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
           </div>
 
-          {/* Prominent START GAME Button */}
+          {/* Prominent ENTER ARENA Button (min 48px touch target) */}
           <Button
             type="submit"
             variant="primary"
-            className="w-full h-12 text-sm font-black tracking-wider uppercase shadow-[0_0_20px_rgba(0,242,254,0.35)] mt-3 flex items-center justify-center gap-2"
+            className="w-full h-12 text-sm font-black tracking-wider uppercase shadow-[0_0_20px_rgba(0,242,254,0.35)] mt-2"
             loading={submitting}
-            icon={<Play className="w-4 h-4 fill-current" />}
+            icon={<ArrowRight className="w-4 h-4" />}
           >
-            {submitting ? 'STARTING GAME...' : 'START GAME'}
+            ENTER ARENA
           </Button>
         </form>
       </div>

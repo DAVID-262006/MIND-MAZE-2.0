@@ -53,6 +53,9 @@ export function ActiveGameView({
     verifyQrToken,
     recordViolation,
     handleTimerExpiry,
+    hasConfigUpdate,
+    publishedConfigVersion,
+    applyPublishedConfig,
   } = useGameStore();
 
   const { success, warning, error: toastError } = useToast();
@@ -291,6 +294,32 @@ export function ActiveGameView({
 
       {/* 2. Main Mobile Content */}
       <main className="flex-1 w-full max-w-xl mx-auto px-3.5 sm:px-4 py-3 space-y-4 pb-28">
+        {/* Notification banner for safe published configuration update */}
+        {hasConfigUpdate && (
+          <div className="bg-gradient-to-r from-blue-900/60 to-cyan-900/60 border border-electric-cyan/40 p-3 rounded-xl flex items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-electric-cyan animate-ping shrink-0" />
+              <span className="text-xs text-white font-mono">
+                New Question Configuration Available (v{publishedConfigVersion})
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const res = applyPublishedConfig();
+                if (res.success) {
+                  success('Configuration Updated', 'Applied latest questions and station riddles safely.');
+                } else {
+                  toastError('Update Error', res.error || 'Failed to apply update.');
+                }
+              }}
+              className="px-3 py-1 bg-electric-cyan text-black text-xs font-mono font-bold rounded-lg hover:bg-cyan-300 transition-colors shrink-0"
+            >
+              Update Now
+            </button>
+          </div>
+        )}
+
         {/* Sticky/Prominent Mobile Timer HUD */}
         <div className="bg-arena-card border border-arena-border rounded-2xl p-3 sm:p-4 shadow-lg space-y-2.5">
           <div className="flex items-center justify-between">
