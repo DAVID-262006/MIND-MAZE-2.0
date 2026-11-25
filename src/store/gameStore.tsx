@@ -70,6 +70,7 @@ interface GameContextType {
 
   // Player actions
   startParticipantGame: (teamId?: string) => Promise<{ success: boolean; error?: string }>;
+  enterAsParticipant: (playerNameOrTeam: string) => Promise<{ success: boolean; error?: string; team?: Team }>;
   loginTeam: (teamCode: string, accessCode: string) => Promise<{ success: boolean; error?: string; team?: Team }> | { success: boolean; error?: string; team?: Team };
   logoutTeam: () => void;
   getTeamProgress: (teamId: string, roundNumber: number) => TeamRoundProgress | undefined;
@@ -1475,6 +1476,81 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     };
   }, [teams, config.status, config.roundDurationSeconds, config.gracePeriodSeconds]);
 
+  /**
+   * Simplified direct participant entrance: "Enter Name and Start Game"
+   * Removes the password requirement for players entirely.
+   */
+  const enterAsParticipant = useCallback(async (playerNameOrTeam: string): Promise<{ success: boolean; error?: string; team?: Team }> => {
+    const rawName = playerNameOrTeam.trim();
+    if (!rawName) {
+      return { success: false, error: 'Please enter your team or participant name.' };
+    }
+
+    const cleanLower = rawName.toLowerCase();
+    const cleanUpper = rawName.toUpperCase();
+
+    // 1. Check if name matches any existing team (by code, username, or teamName)
+    let targetTeam = teams.find((t) => {
+      const matchCode = t.teamCode.toUpperCase() === cleanUpper;
+      const matchName = t.teamName.toLowerCase() === cleanLower;
+      const matchUser = t.username && t.username.toLowerCase() === cleanLower;
+      return matchCode || matchName || matchUser;
+    });
+
+    // 2. If no existing team matches, create a dynamic team on the fly
+    if (!targetTeam) {
+      const existingCodes = new Set(teams.map((t) => t.teamCode.toUpperCase()));
+      let autoCode = cleanUpper.replace(/[^A-Z0-9]/g, '').slice(0, 4);
+      if (!autoCode || existingCodes.has(autoCode)) {
+        let candidateIdx = teams.length + 1;
+        while (existingCodes.has(`T${candidateIdx.toString().padStart(2, '0')}`)) {
+          candidateIdx++;
+        }
+        autoCode = `T${candidateIdx.toString().padStart(2, '0')}`;
+      }
+
+      targetTeam = {
+        id: `team-${Date.now().toString().slice(-6)}`,
+        teamCode: autoCode,
+        teamName: rawName,
+        username: autoCode.toLowerCase(),
+        credentialsConfigured: true,
+        status: 'ready',
+        currentRound: 1,
+        strikes: 0,
+        createdAt: new Date().toISOString(),
+      };
+
+      setTeams((prev) => {
+        const nextTeams = [...prev, targetTeam!];
+        StorageService.saveTeams(nextTeams);
+        return nextTeams;
+      });
+
+      // Ensure routes exist for all teams
+      try {
+        const allTeamIds = [...teams.map((t) => t.id), targetTeam.id];
+        const activeLocations = locations.filter((l) => l.active !== false).slice(0, 9);
+        const locIds = activeLocations.map((l) => l.id);
+        if (locIds.length === 9) {
+          const generated = generateBalancedRoutes(allTeamIds, locIds, 9);
+          setRoutes(generated.matrix);
+          StorageService.saveRoutes(generated.matrix);
+        }
+      } catch (e) {
+        console.warn('Auto route update for new participant:', e);
+      }
+    }
+
+    // Set active participant session
+    const sessionToken = `session_${targetTeam.id}_${Date.now()}`;
+    sessionStorage.setItem('mm2_session_token', sessionToken);
+    sessionStorage.setItem('mm2_team_id', targetTeam.id);
+    setActiveTeamId(targetTeam.id);
+
+    return { success: true, team: targetTeam };
+  }, [teams, locations]);
+
   const startParticipantGame = useCallback(async (teamId?: string): Promise<{ success: boolean; error?: string }> => {
     const targetId = teamId || activeTeamId;
     if (!targetId) {
@@ -2020,6 +2096,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     lockRoutes,
 
     startParticipantGame,
+    enterAsParticipant,
     loginTeam,
     logoutTeam,
     getTeamProgress,

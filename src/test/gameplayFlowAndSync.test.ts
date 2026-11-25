@@ -48,8 +48,8 @@ check(
   'LoginView does not render quick team selection buttons'
 );
 check(
-  loginViewSource.includes('label="Team Username"') && loginViewSource.includes('Team Password'),
-  'LoginView contains standard clean username and password fields'
+  loginViewSource.includes('label="Enter Your Name / Team Name"') && loginViewSource.includes('START GAME'),
+  'LoginView contains standard clean name entry field and START GAME button'
 );
 
 // =============================================================================
