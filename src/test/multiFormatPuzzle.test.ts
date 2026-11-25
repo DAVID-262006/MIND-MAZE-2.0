@@ -1,6 +1,7 @@
 import { AnswerValidator } from '../services/answerEngine';
 import { generateBalancedRoutes } from '../services/routeEngine';
-import { INITIAL_RIDDLES, INITIAL_TEAMS, INITIAL_LOCATIONS } from '../data/seedData';
+import { INITIAL_RIDDLES, INITIAL_LOCATIONS } from '../data/seedData';
+import { TEST_20_TEAMS as INITIAL_TEAMS } from './fixtures/testTeams';
 import { MASTER_RIDDLES } from './fixtures/masterPuzzles';
 import type { Riddle, PuzzleType } from '../types';
 

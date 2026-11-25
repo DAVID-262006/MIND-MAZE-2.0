@@ -257,7 +257,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         }
         if (data.teams && data.teams.length > 0) {
           setTeams((prev) => {
-            // Merge remote teams without losing local edits/configured status
+            // Merge remote teams without losing local edits/configured status or lastSeenAt
             return data.teams!.map((dt) => {
               const existing = prev.find((p) => p.id === dt.id || p.teamCode === dt.teamCode);
               return {
@@ -265,6 +265,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
                 ...dt,
                 username: dt.username || existing?.username,
                 credentialsConfigured: Boolean(dt.credentialsConfigured || dt.username || existing?.credentialsConfigured || existing?.username),
+                lastSeenAt: dt.lastSeenAt || existing?.lastSeenAt,
               };
             });
           });
@@ -289,8 +290,37 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         } else {
           setRoutes((prev) => (prev.length === 180 ? prev : StorageService.loadRoutes()));
         }
-        if (data.progress) {
-          setProgress(data.progress);
+        if (data.progress && data.progress.length > 0) {
+          setProgress((prev) => {
+            const updated = [...prev];
+            data.progress!.forEach((dp) => {
+              const idx = updated.findIndex((p) => p.teamId === dp.teamId && p.roundNumber === dp.roundNumber);
+              if (idx >= 0) {
+                updated[idx] = { ...updated[idx]!, ...dp };
+              } else {
+                updated.push(dp);
+              }
+            });
+            return updated;
+          });
+        } else {
+          // Fallback to fetch directly from team_progress table if RPC didn't return progress
+          SupabaseService.fetchProgress().then((directProg) => {
+            if (directProg && directProg.length > 0) {
+              setProgress((prev) => {
+                const updated = [...prev];
+                directProg.forEach((dp) => {
+                  const idx = updated.findIndex((p) => p.teamId === dp.teamId && p.roundNumber === dp.roundNumber);
+                  if (idx >= 0) {
+                    updated[idx] = { ...updated[idx]!, ...dp };
+                  } else {
+                    updated.push(dp);
+                  }
+                });
+                return updated;
+              });
+            }
+          }).catch(() => {});
         }
         if (data.incidents) {
           setIncidents(data.incidents);
@@ -465,6 +495,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
                       status: (raw.status as any) || t.status,
                       eliminationReason: raw.elimination_reason !== undefined ? (raw.elimination_reason as string | null) : t.eliminationReason,
                       completedAt: raw.completed_at !== undefined ? (raw.completed_at as string | null) : t.completedAt,
+                      lastSeenAt: (raw.last_seen_at as string) || t.lastSeenAt,
+                      startedAt: (raw.started_at as string) || t.startedAt,
                     }
                   : t
               )
@@ -1198,8 +1230,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     if (config.routesLocked) {
       return { success: false, message: 'Routes are locked for the active event.' };
     }
-    if (teams.length !== 20) {
-      return { success: false, message: `Route generator requires exactly 20 teams (currently ${teams.length}).` };
+    if (teams.length === 0) {
+      return { success: false, message: 'Cannot generate routes: No teams have been created yet. Please add teams in Teams tab.' };
     }
     const activeLocations = locations.filter((l) => l.active !== false).slice(0, 9);
     if (activeLocations.length !== 9) {
@@ -1231,7 +1263,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      return { success: true, message: 'Generated and verified 100% collision-free Latin Hypercube routes across 9 stations.' };
+      return { success: true, message: `Generated and verified 100% collision-free Latin Hypercube routes for all ${teams.length} teams across 9 stations.` };
     } catch (err) {
       return { success: false, message: (err as Error).message };
     }

@@ -121,6 +121,7 @@ export interface Team {
   activeSessionToken?: string | null;
   startedAt?: string | null;
   totalTimeMs?: number | null;
+  lastSeenAt?: string | null; // Heartbeat timestamp for live presence monitoring
 }
 
 export interface RouteAssignment {

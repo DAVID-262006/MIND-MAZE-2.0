@@ -294,7 +294,25 @@ for (let round = 1; round <= 9; round++) {
 console.log('\n--- 7. Testing 9-Location Route Matrix Population ---');
 
 import { StorageService } from '../services/storageService';
-import { INITIAL_TEAMS } from '../data/seedData';
+import { TEST_20_TEAMS as INITIAL_TEAMS } from './fixtures/testTeams';
+import { INITIAL_LOCATIONS } from '../data/seedData';
+
+// Mock localStorage if in node test environment
+if (typeof localStorage === 'undefined') {
+  const mockStorage: Record<string, string> = {
+    arena_teams: JSON.stringify(INITIAL_TEAMS),
+    arena_locations: JSON.stringify(INITIAL_LOCATIONS),
+  };
+  (global as any).localStorage = {
+    getItem: (k: string) => mockStorage[k] || null,
+    setItem: (k: string, v: string) => { mockStorage[k] = v; },
+    removeItem: (k: string) => { delete mockStorage[k]; },
+    clear: () => { for (const k in mockStorage) delete mockStorage[k]; },
+  };
+} else {
+  StorageService.saveTeams(INITIAL_TEAMS);
+  StorageService.saveLocations(INITIAL_LOCATIONS);
+}
 
 const loadedLocs = StorageService.loadLocations();
 check(loadedLocs.length === 9, 'StorageService.loadLocations returns exactly 9 physical stations');

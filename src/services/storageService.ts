@@ -83,7 +83,7 @@ export class StorageService {
       const raw = localStorage.getItem(STORAGE_KEYS.TEAMS);
       if (raw && raw !== 'undefined' && raw !== 'null') {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           // Validate and sanitize each team (zero password hashes or passwords stored)
           const sanitized: Team[] = parsed
             .filter((t) => t && typeof t === 'object' && t.id && t.teamCode)
@@ -102,17 +102,16 @@ export class StorageService {
               createdAt: t.createdAt || new Date().toISOString(),
               eliminationReason: t.eliminationReason || undefined,
               completedAt: t.completedAt || undefined,
+              lastSeenAt: t.lastSeenAt || undefined,
             }));
 
-          if (sanitized.length > 0) {
-            return sanitized;
-          }
+          return sanitized;
         }
       }
     } catch (e) {
-      console.warn('Corrupted teams in storage, resetting to initial seed', e);
+      console.warn('Corrupted teams in storage', e);
     }
-    return INITIAL_TEAMS;
+    return [];
   }
 
   public static saveTeams(teams: Team[]): void {
@@ -131,6 +130,7 @@ export class StorageService {
         createdAt: t.createdAt,
         eliminationReason: t.eliminationReason,
         completedAt: t.completedAt,
+        lastSeenAt: t.lastSeenAt,
       }));
       localStorage.setItem(STORAGE_KEYS.TEAMS, JSON.stringify(sanitized));
     } catch (e) {
@@ -251,15 +251,19 @@ export class StorageService {
       console.warn('Corrupted routes in storage, regenerating', e);
     }
 
-    // Generate default routes if none exist or corrupted (20 teams x 9 locations = 180 assignments)
+    // Generate default routes if teams exist and none exist or corrupted
     try {
-      const teamIds = INITIAL_TEAMS.map((t) => t.id);
+      const activeTeams = StorageService.loadTeams();
+      if (activeTeams.length === 0) {
+        return [];
+      }
       const locIds = INITIAL_LOCATIONS.map((l) => l.id);
+      const teamIds = activeTeams.map((t) => t.id);
       const generated = generateBalancedRoutes(teamIds, locIds, 9);
       this.saveRoutes(generated.matrix);
       return generated.matrix;
     } catch (err) {
-      console.error('Failed to generate initial routes:', err);
+      console.warn('Notice generating routes for existing teams:', err);
       return [];
     }
   }

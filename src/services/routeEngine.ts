@@ -13,8 +13,19 @@ export function generateBalancedRoutes(
   roundCount = 9,
   options?: { randomizeTeams?: boolean; randomizeLocations?: boolean }
 ): RouteAllocationResult {
-  if (teamIds.length !== 20) {
-    throw new Error(`Expected exactly 20 teams, received ${teamIds.length}`);
+  if (teamIds.length === 0) {
+    return {
+      matrix: [],
+      isValid: true,
+      verificationReport: {
+        totalTeams: 0,
+        totalLocations: locationIds.length,
+        totalRounds: roundCount,
+        allTeamsVisitAllLocations: true,
+        eachRoundEquipartition: true,
+        collisions: [],
+      },
+    };
   }
   if (locationIds.length !== 9) {
     throw new Error(`Expected exactly 9 locations, received ${locationIds.length}`);
@@ -83,7 +94,9 @@ export function generateBalancedRoutes(
     }
   });
 
-  // Check 2: Balanced distribution (2 or 3 teams per location per round, well under capacity 4)
+  // Check 2: Balanced distribution across locations
+  const expectedMin = Math.floor(teamIds.length / locationCount);
+  const expectedMax = Math.ceil(teamIds.length / locationCount);
   for (let r = 1; r <= roundCount; r++) {
     const counts = new Map<number, number>();
     matrix
@@ -94,9 +107,9 @@ export function generateBalancedRoutes(
 
     locationIds.forEach((locId) => {
       const count = counts.get(locId) || 0;
-      if (count < 2 || count > 3) {
+      if (count < expectedMin || count > expectedMax) {
         eachRoundEquipartition = false;
-        collisions.push(`Round ${r}, Location ${locId} has ${count} teams (expected 2 or 3)`);
+        collisions.push(`Round ${r}, Location ${locId} has ${count} teams (expected ${expectedMin} to ${expectedMax})`);
       }
     });
   }

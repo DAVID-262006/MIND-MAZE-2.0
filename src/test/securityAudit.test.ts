@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { StorageService } from '../services/storageService';
-import { INITIAL_TEAMS } from '../data/seedData';
+import { TEST_20_TEAMS as INITIAL_TEAMS } from './fixtures/testTeams';
 import type { Team } from '../types';
 
 // ==============================================================================

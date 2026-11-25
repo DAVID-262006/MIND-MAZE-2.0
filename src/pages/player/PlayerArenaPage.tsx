@@ -8,6 +8,7 @@ import { EliminationView } from '../../components/arena/EliminationView';
 import { FullscreenActivationScreen } from '../../components/anticheat/FullscreenActivationScreen';
 import { useGameStore } from '../../store/gameStore';
 import { useFullscreen } from '../../hooks/useFullscreen';
+import { SupabaseService } from '../../services/supabaseService';
 
 export interface PlayerArenaPageProps {
   onNavigateHome?: () => void;
@@ -51,6 +52,33 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
       setHasStartedGame(true);
     }
   }, [isTeamStarted, config.status]);
+
+  // Requirement 13D: Participant Heartbeat & Online Presence
+  // Sends a lightweight heartbeat every 12 seconds while a participant is logged in
+  React.useEffect(() => {
+    if (!activeTeam) return;
+
+    let isMounted = true;
+    const sendPing = () => {
+      if (!isMounted) return;
+      const sessionToken = sessionStorage.getItem('mm2_session_token');
+      if (sessionToken && SupabaseService.isConfigured()) {
+        SupabaseService.sendHeartbeat(sessionToken).catch((err) => {
+          // Temporary network failure; do not treat as immediate logout
+          console.warn('[Heartbeat] Ping notice:', err);
+        });
+      }
+    };
+
+    // Immediate initial heartbeat upon entry/mount
+    sendPing();
+
+    const interval = setInterval(sendPing, 12000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [activeTeam?.id]);
 
   const handleStartGame = async () => {
     if (!activeTeam) return;

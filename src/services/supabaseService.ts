@@ -285,18 +285,33 @@ export class SupabaseService {
 
     if (res.success) return res;
 
-    // Resilient tracking fallback for schemas with legacy submit_puzzle_answer
+    // Resilient tracking fallback for schemas with legacy submit_puzzle_answer or direct table update
     if (res.isFallback || res.error?.includes('not yet deployed') || res.error?.includes('schema cache')) {
       const teamId = sessionStorage.getItem('mm2_team_id') || '';
-      return this.callRpc<{
-        success: boolean;
-        puzzle_solved: boolean;
-        message: string;
-      }>('submit_puzzle_answer', {
-        p_team_id: teamId,
-        p_session_token: sessionToken,
-        p_answer: 'LOCAL_VERIFIED',
-      });
+      try {
+        const legacyRes = await this.callRpc<{
+          success: boolean;
+          puzzle_solved: boolean;
+          message: string;
+        }>('submit_puzzle_answer', {
+          p_team_id: teamId,
+          p_session_token: sessionToken,
+          p_answer: 'LOCAL_VERIFIED',
+        });
+        if (legacyRes.success) return legacyRes;
+      } catch {}
+
+      // Direct fallback to team_progress table if RPC is pending
+      if (supabase && teamId) {
+        try {
+          await supabase.from('team_progress').upsert({
+            team_id: teamId,
+            round_number: roundNumber,
+            puzzle_solved: true,
+            puzzle_solved_at: new Date().toISOString(),
+          }, { onConflict: 'team_id,round_number' });
+        } catch {}
+      }
     }
 
     return res;
@@ -334,6 +349,24 @@ export class SupabaseService {
       p_team_id: teamId,
       p_session_token: sessionToken,
       p_qr_token: scannedToken.trim(),
+    });
+  }
+
+  /**
+   * Participant live presence heartbeat: record_team_heartbeat(p_session_token)
+   * Sends lightweight ping every 10-15s to maintain active status.
+   */
+  public static async sendHeartbeat(sessionToken: string): Promise<BackendRpcResponse<{
+    success: boolean;
+    team_id?: string;
+    last_seen_at?: string;
+  }>> {
+    return this.callRpc<{
+      success: boolean;
+      team_id?: string;
+      last_seen_at?: string;
+    }>('record_team_heartbeat', {
+      p_session_token: sessionToken,
     });
   }
 
@@ -576,6 +609,7 @@ export class SupabaseService {
         startedAt: (t.started_at as string) || null,
         completedAt: (t.completed_at as string) || null,
         totalTimeMs: t.total_time_ms !== undefined && t.total_time_ms !== null ? Number(t.total_time_ms) : null,
+        lastSeenAt: (t.last_seen_at as string) || null,
         eliminationReason: (t.elimination_reason as string) || null,
         createdAt: (t.created_at as string) || new Date().toISOString(),
       }));

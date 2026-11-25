@@ -1,7 +1,8 @@
 import assert from 'node:assert';
 import { generateBalancedRoutes } from '../services/routeEngine';
 import { AnswerValidator } from '../services/answerEngine';
-import { INITIAL_LOCATIONS, INITIAL_RIDDLES, INITIAL_TEAMS } from '../data/seedData';
+import { INITIAL_LOCATIONS, INITIAL_RIDDLES } from '../data/seedData';
+import { TEST_20_TEAMS as INITIAL_TEAMS } from './fixtures/testTeams';
 import type { Team, LocationCheckpoint, Riddle, ThreePartSubmission } from '../types';
 
 let passed = 0;

@@ -2,7 +2,8 @@ import { generateBalancedRoutes } from '../services/routeEngine';
 import { AnswerValidator } from '../services/answerEngine';
 import { calculateLeaderboard } from '../services/leaderboardEngine';
 import { StorageService } from '../services/storageService';
-import { INITIAL_TEAMS, INITIAL_LOCATIONS, INITIAL_RIDDLES, INITIAL_EVENT_CONFIG } from '../data/seedData';
+import { INITIAL_LOCATIONS, INITIAL_RIDDLES, INITIAL_EVENT_CONFIG } from '../data/seedData';
+import { TEST_20_TEAMS as INITIAL_TEAMS } from './fixtures/testTeams';
 import { MASTER_LOCATIONS } from './fixtures/masterLocations';
 import type { Team, TeamRoundProgress, AntiCheatIncident, FullGameBackup } from '../types';
 
