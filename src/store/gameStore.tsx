@@ -54,15 +54,12 @@ interface GameContextType {
   // Admin controls
   loginAdmin: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logoutAdmin: () => Promise<void> | void;
-  createTeam: (name: string, code: string, username?: string, password?: string) => Promise<{ success: boolean; error?: string; team?: Team }>;
+  createTeam: (name: string, code?: string) => Promise<{ success: boolean; error?: string; team?: Team }>;
   updateTeam: (id: string, updates: Partial<Team>) => Promise<{ success: boolean; error?: string }>;
   deleteTeam: (id: string, force?: boolean) => Promise<{ success: boolean; error?: string }>;
   eliminateTeam: (id: string, reason: string) => Promise<void> | void;
   reinstateTeam: (id: string) => Promise<void> | void;
-  issueTeamCredentials: (issued: { team_id: string; team_code: string; passcode: string }[]) => void;
-  setTeamCredentials: (teamId: string, username: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  resetTeamPassword: (teamId: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
-  batchGenerateTeamCredentials: () => Promise<{ success: boolean; error?: string; count?: number; credentials?: { team_id: string; team_code: string; team_name: string; username: string; password: string }[] }>;
+  revokeTeamSession: (teamId: string) => Promise<{ success: boolean; error?: string }>;
   updateLocation: (id: number, updates: Partial<LocationCheckpoint>) => void;
   regenerateLocationToken: (id: number) => string;
   saveRiddle: (riddle: Riddle) => void;
@@ -73,8 +70,8 @@ interface GameContextType {
 
   // Player actions
   startParticipantGame: (teamId?: string) => Promise<{ success: boolean; error?: string }>;
-  enterAsParticipant: (playerNameOrTeam: string) => Promise<{ success: boolean; error?: string; team?: Team }>;
-  loginTeam: (teamCode: string, accessCode: string) => Promise<{ success: boolean; error?: string; team?: Team }> | { success: boolean; error?: string; team?: Team };
+  joinLobbyByTeamName: (teamName: string) => Promise<{ success: boolean; error?: string; team?: Team }>;
+  leaveLobby: () => Promise<void>;
   logoutTeam: () => void;
   getTeamProgress: (teamId: string, roundNumber: number) => TeamRoundProgress | undefined;
   getTeamAssignedLocation: (teamId: string, roundNumber: number) => LocationCheckpoint | undefined;
@@ -330,7 +327,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
                 return updated;
               });
             }
-          }).catch(() => {});
+          }).catch(() => { });
         }
         if (data.incidents) {
           setIncidents(data.incidents);
@@ -426,13 +423,13 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             prev.map((t) =>
               t.id === st.id
                 ? {
-                    ...t,
-                    status: (st.status as Team['status']) || t.status,
-                    currentRound: st.current_round || t.currentRound,
-                    strikes: st.total_strikes ?? t.strikes,
-                    eliminationReason: (st as any).elimination_reason !== undefined ? (st as any).elimination_reason : t.eliminationReason,
-                    completedAt: st.completed_at || t.completedAt,
-                  }
+                  ...t,
+                  status: (st.status as Team['status']) || t.status,
+                  currentRound: st.current_round || t.currentRound,
+                  strikes: st.total_strikes ?? t.strikes,
+                  eliminationReason: (st as any).elimination_reason !== undefined ? (st as any).elimination_reason : t.eliminationReason,
+                  completedAt: st.completed_at || t.completedAt,
+                }
                 : t
             )
           );
@@ -488,7 +485,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         () => {
           SupabaseService.fetchPublicEventStatus().then((status) => {
             if (status) setConfig((prev) => ({ ...prev, ...status }));
-          }).catch(() => {});
+          }).catch(() => { });
         }
       )
       .on(
@@ -501,17 +498,17 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
               prev.map((t) =>
                 t.id === raw.id
                   ? {
-                      ...t,
-                      teamCode: (raw.team_code as string) || t.teamCode,
-                      teamName: (raw.team_name as string) || t.teamName,
-                      currentRound: typeof raw.current_round === 'number' ? raw.current_round : t.currentRound,
-                      strikes: typeof raw.strikes === 'number' ? raw.strikes : t.strikes,
-                      status: (raw.status as any) || t.status,
-                      eliminationReason: raw.elimination_reason !== undefined ? (raw.elimination_reason as string | null) : t.eliminationReason,
-                      completedAt: raw.completed_at !== undefined ? (raw.completed_at as string | null) : t.completedAt,
-                      lastSeenAt: (raw.last_seen_at as string) || t.lastSeenAt,
-                      startedAt: (raw.started_at as string) || t.startedAt,
-                    }
+                    ...t,
+                    teamCode: (raw.team_code as string) || t.teamCode,
+                    teamName: (raw.team_name as string) || t.teamName,
+                    currentRound: typeof raw.current_round === 'number' ? raw.current_round : t.currentRound,
+                    strikes: typeof raw.strikes === 'number' ? raw.strikes : t.strikes,
+                    status: (raw.status as any) || t.status,
+                    eliminationReason: raw.elimination_reason !== undefined ? (raw.elimination_reason as string | null) : t.eliminationReason,
+                    completedAt: raw.completed_at !== undefined ? (raw.completed_at as string | null) : t.completedAt,
+                    lastSeenAt: (raw.last_seen_at as string) || t.lastSeenAt,
+                    startedAt: (raw.started_at as string) || t.startedAt,
+                  }
                   : t
               )
             );
@@ -564,7 +561,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           if (isAdminAuthenticated) {
             SupabaseService.fetchIncidents().then((inc) => {
               if (inc) setIncidents(inc);
-            }).catch(() => {});
+            }).catch(() => { });
           }
         }
       )
@@ -731,7 +728,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             status: 'live',
             updated_at: new Date().toISOString(),
           }).eq('id', 1)
-        ).catch(() => {});
+        ).catch(() => { });
       }
     }, 5000);
 
@@ -915,7 +912,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
               if (res.role) setAdminRole(res.role as any);
             }
           })
-          .catch(() => {});
+          .catch(() => { });
       }
 
       return { success: true };
@@ -932,7 +929,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const logoutAdmin = useCallback(async () => {
     if (SupabaseService.isConfigured() && adminToken && adminToken !== 'mm2_hardcoded_admin_token_2026') {
-      await SupabaseService.adminLogout(adminToken).catch(() => {});
+      await SupabaseService.adminLogout(adminToken).catch(() => { });
     }
     sessionStorage.removeItem('mm2_admin_token');
     sessionStorage.removeItem('mm2_admin_authenticated');
@@ -942,22 +939,25 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     StorageService.setAdminAuth(false);
   }, [adminToken]);
 
-  const createTeam = useCallback(async (name: string, code: string, customUsername?: string, customPassword?: string) => {
-    const cleanCode = code.trim().toUpperCase();
+  const createTeam = useCallback(async (name: string, code?: string) => {
     const cleanName = name.trim();
-    const cleanUsername = (customUsername || cleanCode).trim().toLowerCase();
-    const plainPassword = (customPassword || 'user1122').trim();
-
-    if (!cleanCode || !cleanName) {
-      return { success: false, error: 'Team name and code are required.' };
+    if (!cleanName) {
+      return { success: false, error: 'Team name is required.' };
     }
 
-    if (teams.some((t) => t.teamCode.toUpperCase() === cleanCode)) {
-      return { success: false, error: `Team code ${cleanCode} is already taken.` };
+    // Auto-generate unique code if not provided
+    const existingCodes = new Set(teams.map((t) => t.teamCode.toUpperCase()));
+    let cleanCode = (code || '').trim().toUpperCase();
+    if (!cleanCode || existingCodes.has(cleanCode)) {
+      let idx = teams.length + 1;
+      while (existingCodes.has(`T${idx.toString().padStart(2, '0')}`)) {
+        idx++;
+      }
+      cleanCode = `T${idx.toString().padStart(2, '0')}`;
     }
 
-    if (teams.some((t) => t.username?.toLowerCase() === cleanUsername)) {
-      return { success: false, error: `Username ${cleanUsername} is already taken.` };
+    if (teams.some((t) => t.teamName.toLowerCase() === cleanName.toLowerCase())) {
+      return { success: false, error: `A team named "${cleanName}" already exists.` };
     }
 
     if (SupabaseService.isConfigured()) {
@@ -968,30 +968,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         const res = await SupabaseService.adminCreateTeam(cleanName, cleanCode, adminToken);
         const teamData = res.data?.team;
         if (res.success && res.data?.success && teamData) {
-          // If custom password or username was provided, update credentials in Supabase
-          if (customPassword || (customUsername && customUsername !== cleanCode.toLowerCase())) {
-            await SupabaseService.adminSetTeamCredentials(teamData.id, cleanUsername, plainPassword, adminToken).catch(() => {});
-          }
-
           const createdTeam: Team = {
             id: teamData.id,
             teamCode: teamData.team_code,
             teamName: teamData.team_name,
-            username: cleanUsername,
-            credentialsConfigured: true,
-            credentialsRandomized: Boolean(teamData.credentials_randomized),
-            status: (teamData.status as Team['status']) || 'ready',
+            status: 'ready',
             currentRound: teamData.current_round || 1,
             strikes: teamData.total_strikes || 0,
-            createdAt: teamData.created_at,
+            createdAt: teamData.created_at || new Date().toISOString(),
           };
-
-          // Save to local credential cache for immediate dev/test login
-          try {
-            const creds = JSON.parse(localStorage.getItem('mm2_custom_team_credentials') || '{}');
-            creds[teamData.id] = { username: cleanUsername, password: plainPassword };
-            localStorage.setItem('mm2_custom_team_credentials', JSON.stringify(creds));
-          } catch {}
 
           setTeams((prev) => [...prev, createdTeam]);
           return { success: true, team: createdTeam };
@@ -1009,25 +994,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       id: `team-${Date.now().toString().slice(-6)}`,
       teamCode: cleanCode,
       teamName: cleanName,
-      username: cleanUsername,
-      credentialsConfigured: true,
-      credentialsRandomized: true,
-      status: config.status === 'live' ? 'active' : 'ready',
+      status: 'ready',
       currentRound: 1,
       strikes: 0,
       createdAt: new Date().toISOString(),
     };
 
-    // Save to local credential cache
-    try {
-      const creds = JSON.parse(localStorage.getItem('mm2_custom_team_credentials') || '{}');
-      creds[newTeam.id] = { username: cleanUsername, password: plainPassword };
-      localStorage.setItem('mm2_custom_team_credentials', JSON.stringify(creds));
-    } catch {}
-
     setTeams((prev) => [...prev, newTeam]);
     return { success: true, team: newTeam };
-  }, [teams, config.status, adminToken]);
+  }, [teams, adminToken]);
 
   const updateTeam = useCallback(async (id: string, updates: Partial<Team>) => {
     if (SupabaseService.isConfigured() && (updates.teamCode || updates.teamName)) {
@@ -1380,93 +1355,28 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   // ==========================================
-  // PLAYER ACTIONS
+  // PLAYER ACTIONS (TEAM-NAME LOBBY ENTRY)
   // ==========================================
 
-  const loginTeam = useCallback(async (usernameOrCode: string, passwordOrAccess: string) => {
-    const cleanUser = usernameOrCode.trim();
-    const cleanLowerUser = cleanUser.toLowerCase();
-    const cleanUpperUser = cleanUser.toUpperCase();
-    const cleanPass = passwordOrAccess.trim();
-
-    if (!cleanUser || !cleanPass) {
-      return { success: false, error: 'Username and password are required.' };
+  const joinLobbyByTeamName = useCallback(async (teamNameInput: string): Promise<{ success: boolean; error?: string; team?: Team }> => {
+    const rawName = teamNameInput.trim();
+    if (!rawName) {
+      return { success: false, error: 'Please enter your team name.' };
     }
 
-    // Lookup matching team across username, teamCode, or full teamName
+    const cleanLower = rawName.toLowerCase();
+    const existingSessionToken = sessionStorage.getItem('mm2_session_token') || undefined;
+
+    // Check registered team existence in local state
     const matchedLocalTeam = teams.find((t) => {
-      const matchCode = t.teamCode.toUpperCase() === cleanUpperUser;
-      const matchName = t.teamName.toLowerCase() === cleanLowerUser;
-      const matchUser = t.username && t.username.toLowerCase() === cleanLowerUser;
-      return matchCode || matchName || matchUser;
+      const matchName = t.teamName.trim().toLowerCase() === cleanLower;
+      const matchCode = t.teamCode.trim().toLowerCase() === cleanLower;
+      return matchName || matchCode;
     });
 
-    // 1. Check custom team credentials fallback cache
-    const customCredsRaw = localStorage.getItem('mm2_custom_team_credentials');
-    if (customCredsRaw) {
-      try {
-        const customCreds = JSON.parse(customCredsRaw) as Record<string, { username: string; password: string }>;
-        const matchedEntry = Object.entries(customCreds).find(([teamId, data]) => {
-          const t = teams.find((team) => team.id === teamId);
-          return (
-            (data.username?.toLowerCase() === cleanLowerUser ||
-             t?.teamCode.toUpperCase() === cleanUpperUser ||
-             t?.teamName.toLowerCase() === cleanLowerUser) &&
-            data.password === cleanPass
-          );
-        });
-
-        if (matchedEntry) {
-          const [teamId] = matchedEntry;
-          const targetTeam = teams.find((t) => t.id === teamId);
-          if (targetTeam) {
-            const sessionToken = `session_${targetTeam.id}_${Date.now()}`;
-            sessionStorage.setItem('mm2_session_token', sessionToken);
-            sessionStorage.setItem('mm2_team_id', targetTeam.id);
-            setActiveTeamId(targetTeam.id);
-
-            if (SupabaseService.isConfigured()) {
-              SupabaseService.loginTeam(cleanUser, cleanPass).catch(() => {});
-            }
-
-            return { success: true, team: targetTeam };
-          }
-        }
-      } catch (e) {
-        console.warn('Error reading custom creds cache', e);
-      }
-    }
-
-    // 2. Check client-issued passcodes fallback
-    const localPasscodesRaw = localStorage.getItem('mm2_team_passcodes');
-    if (localPasscodesRaw) {
-      try {
-        const localPasscodes = JSON.parse(localPasscodesRaw) as Record<string, string>;
-        const expectedPasscode = localPasscodes[cleanUpperUser];
-        if (expectedPasscode && expectedPasscode === cleanPass) {
-          const targetTeam = teams.find((t) => t.teamCode.toUpperCase() === cleanUpperUser);
-          if (targetTeam) {
-            const sessionToken = `session_${targetTeam.id}_${Date.now()}`;
-            sessionStorage.setItem('mm2_session_token', sessionToken);
-            sessionStorage.setItem('mm2_team_id', targetTeam.id);
-            setActiveTeamId(targetTeam.id);
-
-            // Attempt background sync if Supabase is alive
-            if (SupabaseService.isConfigured()) {
-              SupabaseService.loginTeam(cleanUser, cleanPass).catch(() => {});
-            }
-
-            return { success: true, team: targetTeam };
-          }
-        }
-      } catch (e) {
-        console.warn('Error reading local passcodes', e);
-      }
-    }
-
-    // 3. Supabase RPC Authentication
+    // 1. Supabase Server-Side Atomic Join RPC (if configured)
     if (SupabaseService.isConfigured()) {
-      const rpcRes = await SupabaseService.loginTeam(cleanUser, cleanPass);
+      const rpcRes = await SupabaseService.joinTeamByName(rawName, undefined, existingSessionToken);
 
       if (rpcRes.success && rpcRes.data?.session_token) {
         const teamData = rpcRes.data;
@@ -1479,11 +1389,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           id: teamData.team_id,
           teamCode: teamData.team_code,
           teamName: teamData.team_name,
-          username: teamData.username || cleanLowerUser,
-          credentialsConfigured: true,
-          status: (teamData.status as Team['status']) || 'ready',
+          status: 'ready',
           currentRound: teamData.current_round || 1,
-          strikes: 0,
+          strikes: teamData.total_strikes || 0,
           createdAt: new Date().toISOString(),
         };
 
@@ -1507,7 +1415,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
                       ...t,
                       currentRound: st.current_round,
                       strikes: st.total_strikes,
-                      status: (st.status as Team['status']) || t.status,
+                      status: (st.status as Team['status']) || 'ready',
                       completedAt: st.completed_at || undefined,
                       startedAt: st.started_at || undefined,
                       totalTimeMs: st.total_time_ms || undefined,
@@ -1544,117 +1452,85 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         return { success: true, team: mappedTeam };
       }
 
-      // Resilient fallback when Migration 008 is not yet deployed on Supabase
-      if (
-        (rpcRes.isFallback || rpcRes.error?.includes('not yet deployed') || rpcRes.error?.includes('schema cache'))
-      ) {
-        if (matchedLocalTeam) {
-          console.warn('[Supabase] Migration 008 pending on remote database. Using resilient client session for team', matchedLocalTeam.teamName);
-          const sessionToken = `session_${matchedLocalTeam.id}_${Date.now()}`;
-          sessionStorage.setItem('mm2_session_token', sessionToken);
-          sessionStorage.setItem('mm2_team_id', matchedLocalTeam.id);
-          setActiveTeamId(matchedLocalTeam.id);
-          return { success: true, team: matchedLocalTeam };
+      // If remote migration 011 is pending or network is offline, handle gracefully with local registered teams
+      const isSchemaPending =
+        rpcRes.isFallback ||
+        rpcRes.error?.includes('not yet deployed') ||
+        rpcRes.error?.includes('schema cache') ||
+        rpcRes.error?.includes('Could not find the function public.join_team_by_name');
+
+      if (isSchemaPending && matchedLocalTeam) {
+        if (matchedLocalTeam.status === 'eliminated') {
+          return { success: false, error: 'This team has been disqualified or eliminated from the competition.' };
         }
+        const sessionToken = `session_${matchedLocalTeam.id}_${Date.now()}`;
+        sessionStorage.setItem('mm2_session_token', sessionToken);
+        sessionStorage.setItem('mm2_team_id', matchedLocalTeam.id);
+        setActiveTeamId(matchedLocalTeam.id);
+        setTeams((prev) =>
+          prev.map((t) => (t.id === matchedLocalTeam.id ? { ...t, status: 'ready', lastSeenAt: new Date().toISOString() } : t))
+        );
+        return { success: true, team: matchedLocalTeam };
       }
 
       if (rpcRes.error || !rpcRes.data || !rpcRes.data.success) {
         return {
           success: false,
-          error: rpcRes.error || rpcRes.data?.error || rpcRes.data?.message || 'Authentication failed. Please verify credentials.',
+          error: rpcRes.error || rpcRes.data?.error || rpcRes.data?.message || 'Team not found. Please check your team name.',
         };
       }
     }
 
-    // 4. Standalone / Offline mode fallback
-    if (matchedLocalTeam && (cleanPass === 'user1122' || cleanPass === matchedLocalTeam.teamCode.toLowerCase())) {
-      const sessionToken = `session_${matchedLocalTeam.id}_${Date.now()}`;
-      sessionStorage.setItem('mm2_session_token', sessionToken);
-      sessionStorage.setItem('mm2_team_id', matchedLocalTeam.id);
-      setActiveTeamId(matchedLocalTeam.id);
-      return { success: true, team: matchedLocalTeam };
-    }
-
-    return {
-      success: false,
-      error: 'Invalid team username or password.',
-    };
-  }, [teams, config.status, config.roundDurationSeconds, config.gracePeriodSeconds]);
-
-  /**
-   * Simplified direct participant entrance: "Enter Name and Start Game"
-   * Removes the password requirement for players entirely.
-   */
-  const enterAsParticipant = useCallback(async (playerNameOrTeam: string): Promise<{ success: boolean; error?: string; team?: Team }> => {
-    const rawName = playerNameOrTeam.trim();
-    if (!rawName) {
-      return { success: false, error: 'Please enter your team or participant name.' };
-    }
-
-    const cleanLower = rawName.toLowerCase();
-    const cleanUpper = rawName.toUpperCase();
-
-    // 1. Check if name matches any existing team (by code, username, or teamName)
-    let targetTeam = teams.find((t) => {
-      const matchCode = t.teamCode.toUpperCase() === cleanUpper;
-      const matchName = t.teamName.toLowerCase() === cleanLower;
-      const matchUser = t.username && t.username.toLowerCase() === cleanLower;
-      return matchCode || matchName || matchUser;
-    });
-
-    // 2. If no existing team matches, create a dynamic team on the fly
-    if (!targetTeam) {
-      const existingCodes = new Set(teams.map((t) => t.teamCode.toUpperCase()));
-      let autoCode = cleanUpper.replace(/[^A-Z0-9]/g, '').slice(0, 4);
-      if (!autoCode || existingCodes.has(autoCode)) {
-        let candidateIdx = teams.length + 1;
-        while (existingCodes.has(`T${candidateIdx.toString().padStart(2, '0')}`)) {
-          candidateIdx++;
-        }
-        autoCode = `T${candidateIdx.toString().padStart(2, '0')}`;
-      }
-
-      targetTeam = {
-        id: `team-${Date.now().toString().slice(-6)}`,
-        teamCode: autoCode,
-        teamName: rawName,
-        username: autoCode.toLowerCase(),
-        credentialsConfigured: true,
-        status: 'ready',
-        currentRound: 1,
-        strikes: 0,
-        createdAt: new Date().toISOString(),
+    // 2. Local registered team validation (Stand-alone mode / zero database)
+    if (!matchedLocalTeam) {
+      return {
+        success: false,
+        error: 'Team not found. Please check your team name.',
       };
-
-      setTeams((prev) => {
-        const nextTeams = [...prev, targetTeam!];
-        StorageService.saveTeams(nextTeams);
-        return nextTeams;
-      });
-
-      // Ensure routes exist for all teams
-      try {
-        const allTeamIds = [...teams.map((t) => t.id), targetTeam.id];
-        const activeLocations = locations.filter((l) => l.active !== false).slice(0, 9);
-        const locIds = activeLocations.map((l) => l.id);
-        if (locIds.length === 9) {
-          const generated = generateBalancedRoutes(allTeamIds, locIds, 9);
-          setRoutes(generated.matrix);
-          StorageService.saveRoutes(generated.matrix);
-        }
-      } catch (e) {
-        console.warn('Auto route update for new participant:', e);
-      }
     }
 
-    // Set active participant session
-    const sessionToken = `session_${targetTeam.id}_${Date.now()}`;
-    sessionStorage.setItem('mm2_session_token', sessionToken);
-    sessionStorage.setItem('mm2_team_id', targetTeam.id);
-    setActiveTeamId(targetTeam.id);
+    if (matchedLocalTeam.status === 'eliminated') {
+      return {
+        success: false,
+        error: 'This team has been disqualified or eliminated from the competition.',
+      };
+    }
 
-    return { success: true, team: targetTeam };
-  }, [teams, locations]);
+    const sessionToken = `session_${matchedLocalTeam.id}_${Date.now()}`;
+    sessionStorage.setItem('mm2_session_token', sessionToken);
+    sessionStorage.setItem('mm2_team_id', matchedLocalTeam.id);
+    setActiveTeamId(matchedLocalTeam.id);
+    setTeams((prev) =>
+      prev.map((t) => (t.id === matchedLocalTeam.id ? { ...t, status: 'ready', lastSeenAt: new Date().toISOString() } : t))
+    );
+
+    return { success: true, team: matchedLocalTeam };
+  }, [teams]);
+
+  const leaveLobby = useCallback(async () => {
+    const sessionToken = sessionStorage.getItem('mm2_session_token');
+    if (sessionToken && SupabaseService.isConfigured()) {
+      await SupabaseService.leaveTeamLobby(sessionToken).catch(() => {});
+    }
+    sessionStorage.removeItem('mm2_session_token');
+    sessionStorage.removeItem('mm2_team_id');
+    setActiveTeamId(null);
+  }, []);
+
+  const revokeTeamSession = useCallback(async (teamId: string) => {
+    if (SupabaseService.isConfigured() && adminToken) {
+      await SupabaseService.adminRevokeTeamSession(teamId, adminToken).catch(() => {});
+    }
+    setTeams((prev) =>
+      prev.map((t) => (t.id === teamId ? { ...t, activeSessionToken: null, lastSeenAt: undefined } : t))
+    );
+    if (activeTeamId === teamId) {
+      sessionStorage.removeItem('mm2_session_token');
+      sessionStorage.removeItem('mm2_team_id');
+      setActiveTeamId(null);
+    }
+    return { success: true };
+  }, [activeTeamId, adminToken]);
 
   const startParticipantGame = useCallback(async (teamId?: string): Promise<{ success: boolean; error?: string }> => {
     const targetId = teamId || activeTeamId;
@@ -1681,10 +1557,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       prev.map((t) =>
         t.id === targetId
           ? {
-              ...t,
-              status: t.status === 'completed' || t.status === 'eliminated' ? t.status : 'active',
-              startedAt: t.startedAt || now,
-            }
+            ...t,
+            status: t.status === 'completed' || t.status === 'eliminated' ? t.status : 'active',
+            startedAt: t.startedAt || now,
+          }
           : t
       )
     );
@@ -2113,10 +1989,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       prev.map((t) =>
         t.id === teamId
           ? {
-              ...t,
-              status: 'eliminated',
-              eliminationReason: `Hard deadline expired: 5-minute round limit and 30-second grace period elapsed in Round ${roundNumber} without completing checkpoint verification.`,
-            }
+            ...t,
+            status: 'eliminated',
+            eliminationReason: `Hard deadline expired: 5-minute round limit and 30-second grace period elapsed in Round ${roundNumber} without completing checkpoint verification.`,
+          }
           : t
       )
     );
@@ -2191,10 +2067,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     deleteTeam,
     eliminateTeam,
     reinstateTeam,
+    revokeTeamSession,
     issueTeamCredentials,
-    setTeamCredentials,
-    resetTeamPassword,
-    batchGenerateTeamCredentials,
     updateLocation,
     regenerateLocationToken,
     saveRiddle,
@@ -2204,8 +2078,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     lockRoutes,
 
     startParticipantGame,
-    enterAsParticipant,
-    loginTeam,
+    joinLobbyByTeamName,
+    leaveLobby,
     logoutTeam,
     getTeamProgress,
     getTeamAssignedLocation,

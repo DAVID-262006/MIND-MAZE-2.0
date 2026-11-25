@@ -7,39 +7,39 @@ import { INITIAL_LOCATIONS } from '../data/seedData';
 import { generateBalancedRoutes } from '../services/routeEngine';
 
 describe('MIND MAZE 2.0 Comprehensive End-to-End Verification (Tests 1-10)', () => {
-  // Test 1: Team Registration
-  it('Test 1: Admin registers team with name, username, and password; copy credentials', () => {
-    // 1. Unique username check
-    const existingUsernames = new Set(['team_alpha', 'team_beta']);
-    assert.strictEqual(existingUsernames.has('team_gamma'), false);
-    assert.strictEqual(existingUsernames.has('team_alpha'), true);
+  // Test 1: Team Registration by Team Name Only
+  it('Test 1: Admin registers team with name only; participants join by team name without credentials', () => {
+    // 1. Team registry holds team names
+    const registeredTeams = [
+      { id: 'team-001', teamName: 'TEAM ALPHA', teamCode: 'TA' },
+      { id: 'team-002', teamName: 'ORION NAVIGATORS', teamCode: 'ON' }
+    ];
 
-    // 2. Mock credential storage
-    const customCredentials: Record<string, { username: string; password: string }> = {};
-    const teamId = 'team-001';
-    customCredentials[teamId] = { username: 'team_gamma', password: 'securePassword123' };
+    // Normalize comparison
+    const normalize = (n: string) => n.trim().toLowerCase();
+    const findTeam = (name: string) => registeredTeams.find((t) => normalize(t.teamName) === normalize(name));
 
-    // 3. Verify admin copy format
-    const textToCopy = `MIND MAZE 2.0 Credentials\nTeam: Gamma Rangers (T03)\nUsername: ${customCredentials[teamId].username}\nPassword: ${customCredentials[teamId].password}`;
-    assert.match(textToCopy, /team_gamma/);
-    assert.match(textToCopy, /securePassword123/);
+    assert.ok(findTeam('team alpha'));
+    assert.ok(findTeam(' TEAM ALPHA '));
+    assert.ok(findTeam('Orion Navigators'));
+    assert.strictEqual(findTeam('Unknown Team'), undefined);
   });
 
   // Test 2: Authentication & Centralized Error Handling
   it('Test 2: Centralized Auth Error Mapper suppresses raw database and Postgres errors', () => {
     // Suppress Postgres errors
-    assert.strictEqual(mapAuthError('PGRST202'), 'Login is temporarily unavailable. Please try again shortly.');
-    assert.strictEqual(mapAuthError('42501'), 'Login is temporarily unavailable. Please try again shortly.');
-    assert.strictEqual(mapAuthError('42P01: relation "teams" does not exist'), 'Login is temporarily unavailable. Please try again shortly.');
-    assert.strictEqual(mapAuthError('42703: column does not exist'), 'Login is temporarily unavailable. Please try again shortly.');
-    assert.strictEqual(mapAuthError('Could not find the function public.team_authenticate in the schema cache'), 'Login is temporarily unavailable. Please try again shortly.');
+    assert.strictEqual(mapAuthError('PGRST202'), 'The game is currently unavailable. Please contact the administrator.');
+    assert.strictEqual(mapAuthError('42501'), 'The game is currently unavailable. Please contact the administrator.');
+    assert.strictEqual(mapAuthError('42P01: relation "teams" does not exist'), 'The game is currently unavailable. Please contact the administrator.');
+    assert.strictEqual(mapAuthError('42703: column does not exist'), 'The game is currently unavailable. Please contact the administrator.');
+    assert.strictEqual(mapAuthError('Could not find the function public.join_team_by_name in the schema cache'), 'The game is currently unavailable. Please contact the administrator.');
 
     // User-friendly business error mapping
-    assert.strictEqual(mapAuthError('INVALID_CREDENTIALS'), 'Invalid username or password. Please try again.');
-    assert.strictEqual(mapAuthError('ACCOUNT_INACTIVE'), 'This team account is currently inactive. Contact the event administrator.');
-    assert.strictEqual(mapAuthError('ACCOUNT_LOCKED'), 'Too many attempts. Please wait before trying again.');
-    assert.strictEqual(mapAuthError('SESSION_EXPIRED'), 'Your session has expired. Please log in again.');
-    assert.strictEqual(mapAuthError('Failed to fetch'), 'Unable to connect. Check your internet connection and try again.');
+    assert.strictEqual(mapAuthError('TEAM_NOT_FOUND'), 'Team not found. Please check your team name.');
+    assert.strictEqual(mapAuthError('ALREADY_CLAIMED'), 'This team has already joined the game. Please contact the event administrator.');
+    assert.strictEqual(mapAuthError('TEAM_ELIMINATED'), 'This team has been disqualified from the event.');
+    assert.strictEqual(mapAuthError('SESSION_EXPIRED'), 'Your session has expired. Please enter your team name to rejoin.');
+    assert.strictEqual(mapAuthError('Failed to fetch'), 'Unable to join right now. Please try again.');
   });
 
   // Test 3: Participant Lobby Behavior

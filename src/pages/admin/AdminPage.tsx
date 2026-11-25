@@ -4,7 +4,6 @@ import { AdminLoginView } from '../../components/admin/AdminLoginView';
 import { AdminOverviewTab } from '../../components/admin/AdminOverviewTab';
 import { AdminLiveMonitoringTab } from '../../components/admin/AdminLiveMonitoringTab';
 import { AdminTeamsTab } from '../../components/admin/AdminTeamsTab';
-import { AdminTeamCredentialsTab } from '../../components/admin/AdminTeamCredentialsTab';
 import { AdminPuzzlesTab } from '../../components/admin/AdminPuzzlesTab';
 import { AdminLocationsTab } from '../../components/admin/AdminLocationsTab';
 import { AdminRoutesTab } from '../../components/admin/AdminRoutesTab';
@@ -19,14 +18,12 @@ import {
   ShieldAlert, 
   FileCode2, 
   Sliders, 
-  KeyRound,
 } from 'lucide-react';
 
 type AdminTab =
   | 'overview'
   | 'monitoring'
   | 'teams'
-  | 'credentials'
   | 'puzzles'
   | 'locations'
   | 'routes'
@@ -39,7 +36,7 @@ export interface AdminPageProps {
 }
 
 export function AdminPage({ onNavigateHome, onNavigatePlayer }: AdminPageProps) {
-  const { config, isAdminAuthenticated, logoutAdmin } = useGameStore();
+  const { config, isAdminAuthenticated, logoutAdmin, teams } = useGameStore();
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
 
   if (!isAdminAuthenticated) {
@@ -61,8 +58,7 @@ export function AdminPage({ onNavigateHome, onNavigatePlayer }: AdminPageProps) 
   const tabs: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Overview', icon: <Activity className="w-3.5 h-3.5" /> },
     { id: 'monitoring', label: 'Live Monitoring', icon: <Activity className="w-3.5 h-3.5 text-electric-cyan" /> },
-    { id: 'teams', label: 'Teams (20)', icon: <Users className="w-3.5 h-3.5" /> },
-    { id: 'credentials', label: 'Team Credentials', icon: <KeyRound className="w-3.5 h-3.5 text-electric-amber" /> },
+    { id: 'teams', label: `Teams (${teams.length})`, icon: <Users className="w-3.5 h-3.5" /> },
     { id: 'puzzles', label: 'Questions (9)', icon: <FileCode2 className="w-3.5 h-3.5" /> },
     { id: 'locations', label: 'Stations (9)', icon: <MapPin className="w-3.5 h-3.5" /> },
     { id: 'routes', label: 'Route Matrix', icon: <Sliders className="w-3.5 h-3.5" /> },
@@ -106,7 +102,6 @@ export function AdminPage({ onNavigateHome, onNavigatePlayer }: AdminPageProps) 
           {activeTab === 'overview' && <AdminOverviewTab />}
           {activeTab === 'monitoring' && <AdminLiveMonitoringTab />}
           {activeTab === 'teams' && <AdminTeamsTab />}
-          {activeTab === 'credentials' && <AdminTeamCredentialsTab />}
           {activeTab === 'puzzles' && <AdminPuzzlesTab />}
           {activeTab === 'locations' && <AdminLocationsTab />}
           {activeTab === 'routes' && <AdminRoutesTab />}

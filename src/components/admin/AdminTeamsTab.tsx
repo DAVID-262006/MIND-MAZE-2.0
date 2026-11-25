@@ -8,44 +8,36 @@ import {
   Users, 
   Plus, 
   Search, 
-  KeyRound, 
   Trash2, 
   UserX, 
   UserCheck, 
   Edit3, 
-  CheckCircle2, 
-  ShieldAlert,
-  Download,
-  AlertTriangle,
-  Loader2,
-  Lock,
-  EyeOff,
-  Copy,
-  Key
+  LogOut,
+  Radio,
+  CheckCircle2,
+  Clock
 } from 'lucide-react';
 import { useToast } from '../ui/Toast';
 import { useGameStore } from '../../store/gameStore';
-import { SupabaseService } from '../../services/supabaseService';
-import { exportCredentialsCSV } from '../../services/exportService';
 import type { Team } from '../../types';
 
-interface IssuedCredential {
-  team_id: string;
-  team_code: string;
-  team_name: string;
-  passcode: string;
-}
-
 export function AdminTeamsTab() {
-  const { teams, adminRole, adminToken, createTeam, updateTeam, deleteTeam, eliminateTeam, reinstateTeam, issueTeamCredentials, resetTeamPassword } = useGameStore();
+  const { 
+    teams, 
+    adminRole, 
+    createTeam, 
+    updateTeam, 
+    deleteTeam, 
+    eliminateTeam, 
+    reinstateTeam, 
+    revokeTeamSession 
+  } = useGameStore();
   const { success, warning, error: toastError } = useToast();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamCode, setNewTeamCode] = useState('');
-  const [newTeamUsername, setNewTeamUsername] = useState('');
-  const [newTeamPassword, setNewTeamPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Edit Team state
@@ -53,21 +45,12 @@ export function AdminTeamsTab() {
   const [editName, setEditName] = useState('');
   const [editCode, setEditCode] = useState('');
 
-  // Password Reset Modal state
-  const [resetTargetTeam, setResetTargetTeam] = useState<Team | null>(null);
-  const [newPasswordInput, setNewPasswordInput] = useState('');
-
-  // Eliminate & Delete states
+  // Eliminate, Revoke & Delete states
   const [targetTeam, setTargetTeam] = useState<Team | null>(null);
   const [isEliminateOpen, setIsEliminateOpen] = useState(false);
   const [eliminationReason, setEliminationReason] = useState('Manual disqualification by marshal');
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-
-  // Credential generation modal states
-  const [isCredentialsModalOpen, setIsCredentialsModalOpen] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [confirmInput, setConfirmInput] = useState('');
-  const [generatedCredentials, setGeneratedCredentials] = useState<IssuedCredential[] | null>(null);
+  const [isRevokeOpen, setIsRevokeOpen] = useState(false);
 
   const isSuperadminOrAdmin = adminRole === 'superadmin' || adminRole === 'admin';
 
@@ -79,62 +62,22 @@ export function AdminTeamsTab() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanName = newTeamName.trim();
+    if (!cleanName) {
+      toastError('Validation Error', 'Team name is required.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const username = newTeamUsername.trim() || newTeamCode.trim().toLowerCase();
-      const password = newTeamPassword.trim() || 'user1122';
-      const res = await createTeam(newTeamName, newTeamCode, username, password);
+      const res = await createTeam(cleanName, newTeamCode.trim() || undefined);
       if (res.success) {
-        success('Team Registered', `Registered team ${newTeamCode.toUpperCase()} (${newTeamName}) with username: ${username}.`);
+        success('Team Registered', `Registered team "${cleanName}". Participants can now join by this team name.`);
         setIsCreateOpen(false);
         setNewTeamName('');
         setNewTeamCode('');
-        setNewTeamUsername('');
-        setNewTeamPassword('');
       } else {
         toastError('Registration Error', res.error || 'Failed to register team.');
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleCopyCredentials = (team: Team) => {
-    const creds = JSON.parse(localStorage.getItem('mm2_custom_team_credentials') || '{}');
-    const stored = creds[team.id];
-    const username = team.username || team.teamCode.toLowerCase();
-    const password = stored?.password || 'user1122';
-    const textToCopy = `MIND MAZE 2.0 Credentials\nTeam: ${team.teamName} (${team.teamCode})\nUsername: ${username}\nPassword: ${password}`;
-    
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(textToCopy);
-      success('Credentials Copied', `Copied login credentials for ${team.teamName} to clipboard.`);
-    } else {
-      success('Credentials', `Username: ${username} | Password: ${password}`);
-    }
-  };
-
-  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!resetTargetTeam || !newPasswordInput.trim()) return;
-
-    setIsSubmitting(true);
-    try {
-      const res = await resetTeamPassword(resetTargetTeam.id, newPasswordInput.trim());
-      if (res.success) {
-        // Also update local cache so admin can copy credentials
-        try {
-          const creds = JSON.parse(localStorage.getItem('mm2_custom_team_credentials') || '{}');
-          const username = resetTargetTeam.username || resetTargetTeam.teamCode.toLowerCase();
-          creds[resetTargetTeam.id] = { username, password: newPasswordInput.trim() };
-          localStorage.setItem('mm2_custom_team_credentials', JSON.stringify(creds));
-        } catch {}
-
-        success('Password Reset', `Password for ${resetTargetTeam.teamName} has been securely updated.`);
-        setResetTargetTeam(null);
-        setNewPasswordInput('');
-      } else {
-        toastError('Password Reset Error', res.error || 'Failed to reset password.');
       }
     } finally {
       setIsSubmitting(false);
@@ -153,7 +96,7 @@ export function AdminTeamsTab() {
       });
 
       if (res.success) {
-        success('Team Updated', `Details for ${editCode.toUpperCase()} updated.`);
+        success('Team Updated', `Details for ${editName.trim()} updated.`);
         setEditingTeam(null);
       } else {
         toastError('Update Error', res.error || 'Failed to update team.');
@@ -169,74 +112,51 @@ export function AdminTeamsTab() {
     setEditCode(team.teamCode);
   };
 
-  const handleGenerateCredentials = async () => {
-    if (confirmInput.trim() !== 'CONFIRM') {
-      toastError('Confirmation Required', 'Please type CONFIRM to proceed with credential generation.');
-      return;
-    }
-
-    setIsGenerating(true);
+  const handleRevokeSession = async () => {
+    if (!targetTeam) return;
+    setIsSubmitting(true);
     try {
-      let creds: { team_id: string; team_code: string; team_name: string; passcode: string }[] | null = null;
-
-      // 1. Attempt generation via Supabase if configured
-      if (SupabaseService.isConfigured()) {
-        try {
-          const res = await SupabaseService.adminGenerateTeamCredentials(
-            'CONFIRM_GENERATE_CREDENTIALS',
-            adminToken || 'mm2_hardcoded_admin_token_2026'
-          );
-          if (res.success && res.data?.credentials && res.data.credentials.length > 0) {
-            creds = res.data.credentials;
-          }
-        } catch (e) {
-          console.warn('[Supabase] adminGenerateTeamCredentials fallback:', e);
-        }
+      const res = await revokeTeamSession(targetTeam.id);
+      if (res.success) {
+        success('Session Revoked', `Active session for "${targetTeam.teamName}" has been terminated.`);
+      } else {
+        toastError('Revoke Failed', res.error || 'Could not revoke session.');
       }
-
-      // 2. If Supabase did not return credentials, generate cryptographically on frontend
-      if (!creds || creds.length === 0) {
-        creds = teams.map((team) => {
-          const bytes = new Uint8Array(6);
-          crypto.getRandomValues(bytes);
-          const hex = Array.from(bytes)
-            .map((b) => b.toString(16).padStart(2, '0'))
-            .join('')
-            .toUpperCase();
-          const passcode = `MM2-${hex.slice(0, 4)}-${hex.slice(4, 8)}-${hex.slice(8, 12)}`;
-          return {
-            team_id: team.id,
-            team_code: team.teamCode,
-            team_name: team.teamName,
-            passcode,
-          };
-        });
-      }
-
-      // Persist and apply generated passcodes to teams state
-      issueTeamCredentials(creds);
-
-      setGeneratedCredentials(creds);
-      success('Credentials Generated', `Cryptographically secure credentials generated for ${creds.length} teams.`);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      toastError('Execution Error', msg);
     } finally {
-      setIsGenerating(false);
+      setIsSubmitting(false);
+      setIsRevokeOpen(false);
+      setTargetTeam(null);
     }
   };
 
-  const handleDownloadCSV = () => {
-    if (!generatedCredentials || generatedCredentials.length === 0) return;
-    exportCredentialsCSV(generatedCredentials);
-    success('CSV Downloaded', 'Team credentials exported. Store this file securely.');
-  };
+  // Helper to determine fine-grained live lobby/game status
+  const getTeamOperationalStatus = (team: Team) => {
+    if (team.status === 'eliminated') {
+      return { label: 'Eliminated', variant: 'eliminated' as const, dotColor: 'bg-red-500' };
+    }
+    if (team.status === 'completed') {
+      return { label: 'Completed', variant: 'completed' as const, dotColor: 'bg-emerald-400' };
+    }
 
-  const handleCloseCredentialsModal = () => {
-    // Purge plain credentials from component state
-    setGeneratedCredentials(null);
-    setConfirmInput('');
-    setIsCredentialsModalOpen(false);
+    // Check heartbeat freshness (within 60s)
+    const isHeartbeatFresh = team.lastSeenAt && (Date.now() - new Date(team.lastSeenAt).getTime()) < 60000;
+
+    if (team.status === 'active') {
+      if (isHeartbeatFresh) {
+        return { label: 'Online — Playing', variant: 'active' as const, dotColor: 'bg-cyan-400' };
+      }
+      return { label: 'Offline', variant: 'neutral' as const, dotColor: 'bg-zinc-500' };
+    }
+
+    // Status is 'ready' (in lobby) or idle
+    if (team.activeSessionToken || team.lastSeenAt) {
+      if (isHeartbeatFresh) {
+        return { label: 'Online — Lobby', variant: 'ready' as const, dotColor: 'bg-amber-400' };
+      }
+      return { label: 'Offline', variant: 'neutral' as const, dotColor: 'bg-zinc-500' };
+    }
+
+    return { label: 'Not Joined', variant: 'neutral' as const, dotColor: 'bg-zinc-600' };
   };
 
   return (
@@ -260,23 +180,6 @@ export function AdminTeamsTab() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Deliberate Credential Generation Button */}
-          {isSuperadminOrAdmin && (
-            <Button
-              size="sm"
-              variant="outline"
-              icon={<KeyRound className="w-3.5 h-3.5 text-electric-amber" />}
-              onClick={() => {
-                setGeneratedCredentials(null);
-                setConfirmInput('');
-                setIsCredentialsModalOpen(true);
-              }}
-              className="text-xs border-electric-amber/40 hover:border-electric-amber"
-            >
-              Issue Credentials
-            </Button>
-          )}
-
           <Button
             size="sm"
             variant="primary"
@@ -284,7 +187,7 @@ export function AdminTeamsTab() {
             onClick={() => setIsCreateOpen(true)}
             disabled={!isSuperadminOrAdmin}
           >
-            Add New Team
+            Register Team
           </Button>
         </div>
       </div>
@@ -296,155 +199,130 @@ export function AdminTeamsTab() {
             <thead>
               <tr className="border-b border-arena-border bg-arena-panel/50 font-mono text-[11px] text-arena-muted uppercase tracking-wider">
                 <th className="py-3 px-4">Code</th>
-                <th className="py-3 px-4">Team Name</th>
-                <th className="py-3 px-4">Credentials Status</th>
+                <th className="py-3 px-4">Team Name (Entry Key)</th>
+                <th className="py-3 px-4">Live Status</th>
                 <th className="py-3 px-4">Round</th>
                 <th className="py-3 px-4">Strikes</th>
-                <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-arena-border/50 font-mono">
-              {filteredTeams.map((team) => (
-                <tr key={team.id} className="hover:bg-arena-panel/30 transition-colors">
-                  <td className="py-3 px-4 font-bold text-electric-cyan">{team.teamCode}</td>
-                  <td className="py-3 px-4 text-white font-sans font-medium">{team.teamName}</td>
-                  <td className="py-3 px-4">
-                    {team.credentialsRandomized ? (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950/60 border border-emerald-500/40 text-emerald-400">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                        <span>Issued &amp; Encrypted</span>
+              {filteredTeams.map((team) => {
+                const opStatus = getTeamOperationalStatus(team);
+                return (
+                  <tr key={team.id} className="hover:bg-arena-panel/30 transition-colors">
+                    <td className="py-3 px-4 font-bold text-electric-cyan">{team.teamCode}</td>
+                    <td className="py-3 px-4 text-white font-sans font-medium">
+                      <div className="flex items-center gap-2">
+                        <span>{team.teamName}</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-arena-panel border border-arena-border text-white">
+                        <span className={`w-2 h-2 rounded-full ${opStatus.dotColor} ${opStatus.variant === 'active' || opStatus.variant === 'ready' ? 'animate-pulse' : ''}`} />
+                        <span>{opStatus.label}</span>
                       </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-950/60 border border-amber-500/40 text-amber-400">
-                        <ShieldAlert className="w-3 h-3 text-amber-400" />
-                        <span>Locked / Unissued</span>
+                    </td>
+                    <td className="py-3 px-4 text-white font-bold">Round {team.currentRound}</td>
+                    <td className="py-3 px-4">
+                      <span
+                        className={`font-bold ${
+                          team.strikes === 0
+                            ? 'text-electric-emerald'
+                            : team.strikes === 1
+                            ? 'text-electric-amber'
+                            : 'text-electric-crimson'
+                        }`}
+                      >
+                        {team.strikes} / 3
                       </span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 text-white font-bold">Round {team.currentRound}</td>
-                  <td className="py-3 px-4">
-                    <span
-                      className={`font-bold ${
-                        team.strikes === 0
-                          ? 'text-electric-emerald'
-                          : team.strikes === 1
-                          ? 'text-electric-amber'
-                          : 'text-electric-crimson'
-                      }`}
-                    >
-                      {team.strikes} / 3
-                    </span>
-                  </td>
-                  <td className="py-3 px-4">
-                    <StatusBadge
-                      variant={
-                        team.status === 'active'
-                          ? 'active'
-                          : team.status === 'completed'
-                          ? 'completed'
-                          : team.status === 'eliminated'
-                          ? 'eliminated'
-                          : 'ready'
-                      }
-                      label={team.status.toUpperCase()}
-                      pulse={team.status === 'active'}
-                    />
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleCopyCredentials(team)}
-                        className="p-1.5 text-electric-cyan hover:bg-cyan-500/10"
-                        title="Copy team login credentials"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setResetTargetTeam(team);
-                          setNewPasswordInput('');
-                        }}
-                        className="p-1.5 text-electric-amber hover:bg-amber-500/10"
-                        title="Reset team password"
-                        disabled={!isSuperadminOrAdmin}
-                      >
-                        <Key className="w-3.5 h-3.5" />
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => openEdit(team)}
-                        className="p-1.5 text-arena-muted hover:text-white"
-                        title="Edit team details"
-                        disabled={!isSuperadminOrAdmin}
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </Button>
-
-                      {team.status === 'eliminated' ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={async () => {
-                            try {
-                              await reinstateTeam(team.id);
-                              success('Team Reinstated', `${team.teamCode} strikes cleared and reinstated.`);
-                            } catch (err: unknown) {
-                              const msg = err instanceof Error ? err.message : String(err);
-                              toastError('Reinstate Failed', msg);
-                            }
-                          }}
-                          className="p-1.5 text-electric-emerald hover:bg-emerald-500/10"
-                          title="Reinstate eliminated team"
-                          disabled={!isSuperadminOrAdmin}
-                        >
-                          <UserCheck className="w-3.5 h-3.5" />
-                        </Button>
-                      ) : (
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {/* Revoke Session Button */}
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => {
                             setTargetTeam(team);
-                            setIsEliminateOpen(true);
+                            setIsRevokeOpen(true);
                           }}
                           className="p-1.5 text-electric-amber hover:bg-amber-500/10"
-                          title="Disqualify / Eliminate team"
+                          title="Revoke active team session (forces device to rejoin)"
+                          disabled={!isSuperadminOrAdmin}
                         >
-                          <UserX className="w-3.5 h-3.5" />
+                          <LogOut className="w-3.5 h-3.5" />
                         </Button>
-                      )}
 
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setTargetTeam(team);
-                          setIsDeleteOpen(true);
-                        }}
-                        className="p-1.5 text-electric-crimson hover:bg-red-500/10"
-                        title="Delete team"
-                        disabled={!isSuperadminOrAdmin}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => openEdit(team)}
+                          className="p-1.5 text-arena-muted hover:text-white"
+                          title="Edit team details"
+                          disabled={!isSuperadminOrAdmin}
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </Button>
+
+                        {team.status === 'eliminated' ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={async () => {
+                              try {
+                                await reinstateTeam(team.id);
+                                success('Team Reinstated', `${team.teamName} strikes cleared and reinstated.`);
+                              } catch (err: unknown) {
+                                const msg = err instanceof Error ? err.message : String(err);
+                                toastError('Reinstate Failed', msg);
+                              }
+                            }}
+                            className="p-1.5 text-electric-emerald hover:bg-emerald-500/10"
+                            title="Reinstate eliminated team"
+                            disabled={!isSuperadminOrAdmin}
+                          >
+                            <UserCheck className="w-3.5 h-3.5" />
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setTargetTeam(team);
+                              setIsEliminateOpen(true);
+                            }}
+                            className="p-1.5 text-electric-amber hover:bg-amber-500/10"
+                            title="Disqualify / Eliminate team"
+                          >
+                            <UserX className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setTargetTeam(team);
+                            setIsDeleteOpen(true);
+                          }}
+                          className="p-1.5 text-electric-crimson hover:bg-red-500/10"
+                          title="Delete team"
+                          disabled={!isSuperadminOrAdmin}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Modal: Create Team */}
+      {/* Modal: Register Team (Only Name & Code) */}
       <Modal
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
@@ -452,44 +330,30 @@ export function AdminTeamsTab() {
       >
         <form onSubmit={handleCreate} className="space-y-4">
           <Input
-            label="Team Code"
-            placeholder="e.g. T21"
-            value={newTeamCode}
+            label="Team Name"
+            placeholder="e.g. TEAM ALPHA, ORION NAVIGATORS"
+            value={newTeamName}
             onChange={(e) => {
-              setNewTeamCode(e.target.value);
-              if (!newTeamUsername) {
-                setNewTeamUsername(e.target.value.toLowerCase());
+              setNewTeamName(e.target.value);
+              if (!newTeamCode && e.target.value.trim()) {
+                const words = e.target.value.trim().split(/\s+/);
+                const code = words.length > 1 
+                  ? (words[0][0] + words[1][0]).toUpperCase() 
+                  : words[0].slice(0, 3).toUpperCase();
+                setNewTeamCode(code);
               }
             }}
             required
             disabled={isSubmitting}
-            helperText="Unique uppercase identifier (e.g. T01 to T25)"
+            helperText="Participants enter this exact name to join the lobby."
           />
           <Input
-            label="Team Name"
-            placeholder="e.g. Orion Navigators"
-            value={newTeamName}
-            onChange={(e) => setNewTeamName(e.target.value)}
-            required
+            label="Team Code (Optional)"
+            placeholder="e.g. T01, TA"
+            value={newTeamCode}
+            onChange={(e) => setNewTeamCode(e.target.value)}
             disabled={isSubmitting}
-          />
-          <Input
-            label="Team Username"
-            placeholder="e.g. orion_team"
-            value={newTeamUsername}
-            onChange={(e) => setNewTeamUsername(e.target.value)}
-            required
-            disabled={isSubmitting}
-            helperText="Participant login username (lowercase, 3-30 chars)"
-          />
-          <Input
-            label="Initial Team Password"
-            type="password"
-            placeholder="Minimum 6 characters (default: user1122)"
-            value={newTeamPassword}
-            onChange={(e) => setNewTeamPassword(e.target.value)}
-            disabled={isSubmitting}
-            helperText="Hashed via bcrypt. Plaintext is never stored in Supabase."
+            helperText="Short uppercase tag used on admin dashboards."
           />
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" size="sm" type="button" onClick={() => setIsCreateOpen(false)} disabled={isSubmitting}>
@@ -497,36 +361,6 @@ export function AdminTeamsTab() {
             </Button>
             <Button variant="primary" size="sm" type="submit" disabled={isSubmitting}>
               {isSubmitting ? 'Registering...' : 'Register Team'}
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Modal: Reset Password */}
-      <Modal
-        isOpen={!!resetTargetTeam}
-        onClose={() => setResetTargetTeam(null)}
-        title={`Reset Password for ${resetTargetTeam?.teamName}`}
-      >
-        <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
-          <p className="text-xs text-arena-muted">
-            Update the secure password for team <strong className="text-white">{resetTargetTeam?.teamCode}</strong> (Username: <span className="text-electric-cyan font-mono">{resetTargetTeam?.username || resetTargetTeam?.teamCode.toLowerCase()}</span>).
-          </p>
-          <Input
-            label="New Password"
-            type="password"
-            placeholder="Minimum 6 characters"
-            value={newPasswordInput}
-            onChange={(e) => setNewPasswordInput(e.target.value)}
-            required
-            disabled={isSubmitting}
-          />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" size="sm" type="button" onClick={() => setResetTargetTeam(null)} disabled={isSubmitting}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="sm" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Updating...' : 'Update Password'}
             </Button>
           </div>
         </form>
@@ -540,16 +374,17 @@ export function AdminTeamsTab() {
       >
         <form onSubmit={handleSaveEdit} className="space-y-4">
           <Input
-            label="Team Code"
-            value={editCode}
-            onChange={(e) => setEditCode(e.target.value)}
-            required
-            disabled={isSubmitting}
-          />
-          <Input
             label="Team Name"
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
+            required
+            disabled={isSubmitting}
+            helperText="Changing this updates the team name participants enter to join."
+          />
+          <Input
+            label="Team Code"
+            value={editCode}
+            onChange={(e) => setEditCode(e.target.value)}
             required
             disabled={isSubmitting}
           />
@@ -564,115 +399,18 @@ export function AdminTeamsTab() {
         </form>
       </Modal>
 
-      {/* Modal: Credential Generation & One-Time Display */}
-      <Modal
-        isOpen={isCredentialsModalOpen}
-        onClose={handleCloseCredentialsModal}
-        title="Cryptographic Team Credential Generation"
-        maxWidth="xl"
-      >
-        <div className="space-y-4 py-1">
-          {!generatedCredentials ? (
-            <div className="space-y-4">
-              <div className="p-3.5 bg-amber-950/40 border border-amber-500/50 rounded-xl text-amber-200 text-xs space-y-2">
-                <div className="flex items-center gap-2 font-bold text-amber-300">
-                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>CRITICAL SECURITY WARNING: ACTIVE SESSIONS WILL BE INVALIDATED</span>
-                </div>
-                <p className="leading-relaxed">
-                  Generating new team credentials will create cryptographically random passcodes on the server, hash them using bcrypt, and invalidate any existing team logins and active sessions.
-                </p>
-                <p className="leading-relaxed font-semibold text-white">
-                  The generated plaintext passcodes will be shown ONCE on the next screen for CSV export. They are NEVER stored in the database or server logs.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-xs font-semibold text-arena-muted uppercase tracking-wider">
-                  Type <span className="text-white font-mono font-bold">CONFIRM</span> to proceed:
-                </label>
-                <input
-                  type="text"
-                  placeholder="CONFIRM"
-                  value={confirmInput}
-                  onChange={(e) => setConfirmInput(e.target.value)}
-                  className="w-full bg-arena-panel border border-arena-border rounded-lg px-3 py-2 text-xs text-white placeholder-arena-muted/50 font-mono outline-none focus:border-electric-amber"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-arena-border/60">
-                <Button variant="ghost" size="sm" onClick={handleCloseCredentialsModal} disabled={isGenerating}>
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleGenerateCredentials}
-                  disabled={confirmInput.trim() !== 'CONFIRM' || isGenerating}
-                  className="bg-electric-amber text-arena-bg hover:bg-amber-400 font-bold"
-                  icon={isGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <KeyRound className="w-3.5 h-3.5" />}
-                >
-                  {isGenerating ? 'Generating Cryptographic Keys...' : 'Generate Team Credentials'}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="p-3 bg-emerald-950/40 border border-emerald-500/50 rounded-xl text-xs text-emerald-200 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Credentials generated for {generatedCredentials.length} teams. Download the CSV now.</span>
-                </div>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon={<Download className="w-3.5 h-3.5" />}
-                  onClick={handleDownloadCSV}
-                  className="bg-emerald-500 hover:bg-emerald-400 text-black font-bold h-7 text-xs"
-                >
-                  Download CSV
-                </Button>
-              </div>
-
-              <div className="max-h-72 overflow-y-auto border border-arena-border rounded-xl">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead className="bg-arena-panel sticky top-0 border-b border-arena-border">
-                    <tr className="font-mono text-[10px] text-arena-muted uppercase tracking-wider">
-                      <th className="py-2 px-3">Code</th>
-                      <th className="py-2 px-3">Team Name</th>
-                      <th className="py-2 px-3">Generated Passcode (Shown Once)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-arena-border/50 font-mono">
-                    {generatedCredentials.map((c) => (
-                      <tr key={c.team_id} className="hover:bg-arena-panel/30">
-                        <td className="py-2 px-3 font-bold text-electric-cyan">{c.team_code}</td>
-                        <td className="py-2 px-3 text-white font-sans">{c.team_name}</td>
-                        <td className="py-2 px-3 text-electric-amber font-bold tracking-wider select-all">
-                          {c.passcode}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="p-2.5 bg-arena-panel/40 border border-arena-border/60 rounded-lg text-[11px] text-arena-muted flex items-center gap-2">
-                <EyeOff className="w-4 h-4 text-arena-muted shrink-0" />
-                <span>
-                  Closing this modal will permanently clear these plaintext passcodes from browser memory.
-                </span>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-arena-border/60">
-                <Button variant="secondary" size="sm" onClick={handleCloseCredentialsModal}>
-                  Dismiss &amp; Clear Credentials
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </Modal>
+      {/* Modal: Revoke Session */}
+      <ConfirmationDialog
+        isOpen={isRevokeOpen}
+        onClose={() => {
+          setIsRevokeOpen(false);
+          setTargetTeam(null);
+        }}
+        onConfirm={handleRevokeSession}
+        title="Revoke Team Session"
+        message={`Are you sure you want to revoke the active session for "${targetTeam?.teamName}"? This frees the team name so a new device or reconnecting participant can join.`}
+        confirmLabel="Revoke Session"
+      />
 
       {/* Modal: Eliminate Team */}
       <Modal

@@ -1,14 +1,14 @@
 /**
- * MIND MAZE 2.0 — Centralized Authentication Error Mapping Service
+ * MIND MAZE 2.0 — Centralized Participant Error Mapping Service
  * 
  * Invariant: The Participant Panel must never expose raw database, SQL,
  * Supabase, or migration errors (e.g. PGRST202, 42501, 42P01, 42703, relation does not exist).
- * Converts technical and backend errors into safe, consistent user-facing messages.
+ * Converts technical and backend errors into safe, consistent, friendly user-facing messages.
  */
 
 export function mapAuthError(rawError: unknown): string {
   if (!rawError) {
-    return 'Invalid username or password. Please try again.';
+    return 'Team not found. Please check your team name.';
   }
 
   const errStr = typeof rawError === 'string'
@@ -20,44 +20,46 @@ export function mapAuthError(rawError: unknown): string {
   const clean = errStr.trim();
   const lower = clean.toLowerCase();
 
-  // Missing credentials
+  // Missing team name
   if (
-    lower.includes('both username and password') ||
-    lower.includes('username is required') ||
-    lower.includes('password is required') ||
-    lower.includes('missing credentials')
+    lower.includes('team name is required') ||
+    lower.includes('team_name_required') ||
+    lower.includes('enter your team name') ||
+    lower.includes('please enter')
   ) {
-    return 'Please enter both username and password.';
+    return 'Please enter your team name.';
   }
 
-  // Disabled or inactive team account
+  // Team already claimed / duplicate active session
+  if (
+    lower.includes('already claimed') ||
+    lower.includes('already_claimed') ||
+    lower.includes('already joined') ||
+    lower.includes('team_already_claimed') ||
+    lower.includes('already in game')
+  ) {
+    return 'This team has already joined the game. Please contact the event administrator.';
+  }
+
+  // Disqualified or eliminated team account
   if (
     lower.includes('inactive') ||
     lower.includes('disabled') ||
     lower.includes('team_eliminated') ||
-    lower.includes('disqualified')
+    lower.includes('disqualified') ||
+    lower.includes('eliminated')
   ) {
-    return 'This team account is currently inactive. Contact the event administrator.';
+    return 'This team has been disqualified from the event.';
   }
 
-  // Rate limiting / Account Lockout
-  if (
-    lower.includes('too many') ||
-    lower.includes('rate limit') ||
-    lower.includes('account_locked') ||
-    lower.includes('locked until') ||
-    lower.includes('locked')
-  ) {
-    return 'Too many attempts. Please wait before trying again.';
-  }
-
-  // Expired session
+  // Expired or invalid session
   if (
     lower.includes('expired') ||
     lower.includes('invalid_session') ||
-    lower.includes('session invalid')
+    lower.includes('session invalid') ||
+    lower.includes('session expired')
   ) {
-    return 'Your session has expired. Please log in again.';
+    return 'Your session has expired. Please enter your team name to rejoin.';
   }
 
   // Network failure / Offline
@@ -68,23 +70,21 @@ export function mapAuthError(rawError: unknown): string {
     lower.includes('connection') ||
     lower.includes('econnrefused')
   ) {
-    return 'Unable to connect. Check your internet connection and try again.';
+    return 'Unable to join right now. Please try again.';
   }
 
-  // Unregistered team / Invalid credentials
+  // Unregistered team / Team not found
   if (
-    lower.includes('invalid team username or password') ||
-    lower.includes('invalid credentials') ||
-    lower.includes('invalid username or password') ||
     lower.includes('not found') ||
-    lower.includes('team not found') ||
+    lower.includes('team_not_found') ||
     lower.includes('unregistered') ||
-    lower.includes('credentials_not_initialized')
+    lower.includes('unknown team') ||
+    lower.includes('invalid')
   ) {
-    return 'Invalid username or password. Please check your credentials.';
+    return 'Team not found. Please check your team name.';
   }
 
-  // Database, SQL, Migration, or Supabase internal error codes (PGRST202, 42501, 42P01, 42703, etc.)
+  // Database, SQL, Migration, or Supabase internal error codes
   if (
     lower.includes('pgrst') ||
     lower.includes('schema cache') ||
@@ -100,11 +100,9 @@ export function mapAuthError(rawError: unknown): string {
     lower.includes('internal') ||
     lower.includes('stack')
   ) {
-    // Log securely for dev/admin telemetry without leaking passwords or tokens
     console.warn('[AuthErrorMapper] Handled technical backend error safely:', clean.substring(0, 100));
-    return 'Login is temporarily unavailable. Please try again shortly.';
+    return 'The game is currently unavailable. Please contact the administrator.';
   }
 
-  // Default safe generic message (does not reveal username existence)
-  return 'Invalid username or password. Please try again.';
+  return 'Team not found. Please check your team name.';
 }

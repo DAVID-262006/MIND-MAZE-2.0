@@ -116,76 +116,59 @@ export class SupabaseService {
    * ------------------------------------------------------------------------- */
 
   /**
-   * Team authentication: login_team(p_username, p_password, p_device_fingerprint)
-   * Supports both custom team usernames, team codes, and team names.
+   * Secure team-name entry: join_team_by_name(p_team_name, p_device_fingerprint, p_existing_session_token)
+   * Validates registered team name, claims session atomically, and returns a high-entropy session token.
    */
-  public static async loginTeam(usernameOrCode: string, passwordOrPasscode: string, deviceFingerprint?: string) {
-    const cleanUser = usernameOrCode.trim();
-    const cleanPass = passwordOrPasscode.trim();
+  public static async joinTeamByName(
+    teamName: string,
+    deviceFingerprint?: string,
+    existingSessionToken?: string
+  ) {
+    const cleanName = teamName.trim();
 
-    // 1. Primary call matching Migration 008 signature
-    const rpcRes = await this.callRpc<{
+    return this.callRpc<{
       success: boolean;
       team_id: string;
       team_code: string;
       team_name: string;
-      username?: string;
       session_token: string;
-      current_round: number;
       status: string;
-      total_score: number;
+      current_round: number;
+      total_strikes: number;
+      is_reconnect?: boolean;
       error?: string;
       message?: string;
-    }>('login_team', {
-      p_username: cleanUser,
-      p_password: cleanPass,
+    }>('join_team_by_name', {
+      p_team_name: cleanName,
       p_device_fingerprint: deviceFingerprint || null,
+      p_existing_session_token: existingSessionToken || null,
     });
+  }
 
-    if (rpcRes.success) {
-      return rpcRes;
-    }
+  /**
+   * Leave lobby / voluntary session release: leave_team_lobby(p_session_token)
+   */
+  public static async leaveTeamLobby(sessionToken: string) {
+    return this.callRpc<{ success: boolean; message: string }>('leave_team_lobby', {
+      p_session_token: sessionToken,
+    });
+  }
 
-    // 2. Legacy fallback ONLY if the RPC error is an actual schema/parameter mismatch
-    // (e.g. older migration where login_team accepted p_team_code instead of p_username)
-    // IMPORTANT: If login_team returned a business rejection (e.g. "ACCOUNT_LOCKED" or
-    // "Invalid team username or password"), do NOT call legacy login_team, as that would
-    // fail schema matching and overwrite the real error with a confusing "Migration pending" message.
-    const isSignatureMismatch =
-      rpcRes.error?.includes('Could not find the function public.login_team') &&
-      rpcRes.error?.includes('schema cache');
-
-    if (isSignatureMismatch) {
-      const legacyRes = await this.callRpc<{
-        success: boolean;
-        team_id: string;
-        team_code: string;
-        team_name: string;
-        username?: string;
-        session_token: string;
-        current_round: number;
-        status: string;
-        total_score: number;
-        error?: string;
-        message?: string;
-      }>('login_team', {
-        p_team_code: cleanUser.toUpperCase(),
-        p_passcode: cleanPass,
-        p_device_fingerprint: deviceFingerprint || null,
-      });
-
-      if (legacyRes.success) {
-        return legacyRes;
-      }
-    }
-
-    return rpcRes;
+  /**
+   * Admin revoke team session: admin_revoke_team_session(p_admin_token, p_team_id)
+   */
+  public static async adminRevokeTeamSession(teamId: string, adminToken: string) {
+    return this.callRpc<{ success: boolean; message: string }>('admin_revoke_team_session', {
+      p_admin_token: adminToken,
+      p_team_id: teamId,
+    });
   }
 
   /**
    * Team logout: logout_team(p_team_id, p_session_token)
    */
   public static async logoutTeam(teamId: string, sessionToken: string) {
+    await this.leaveTeamLobby(sessionToken).catch(() => {});
     return this.callRpc<{ success: boolean; message: string }>('logout_team', {
       p_team_id: teamId,
       p_session_token: sessionToken,

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Compass, KeyRound, User, AlertOctagon, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Compass, Users, AlertOctagon, ArrowRight } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { useFullscreen } from '../../hooks/useFullscreen';
 import { mapAuthError } from '../../services/authErrorMapper';
@@ -11,12 +11,10 @@ export interface LoginViewProps {
 }
 
 export function LoginView({ onLoginSuccess }: LoginViewProps) {
-  const { teams, loginTeam } = useGameStore();
+  const { joinLobbyByTeamName } = useGameStore();
   const { enterFullscreen } = useFullscreen();
 
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [teamName, setTeamName] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -24,16 +22,14 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     e.preventDefault();
     setErrorMessage(null);
 
-    const cleanUser = username.trim();
-    const cleanPass = password.trim();
-
-    if (!cleanUser || !cleanPass) {
-      setErrorMessage(mapAuthError('Please enter both username and password.'));
+    const cleanName = teamName.trim();
+    if (!cleanName) {
+      setErrorMessage(mapAuthError('Please enter your team name.'));
       return;
     }
 
     setSubmitting(true);
-    const res = await loginTeam(cleanUser, cleanPass);
+    const res = await joinLobbyByTeamName(cleanName);
     setSubmitting(false);
 
     if (!res.success) {
@@ -57,13 +53,13 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
           <h1 className="text-2xl sm:text-3xl font-black tracking-wider text-white font-mono">
             MIND MAZE 2.0
           </h1>
-          <p className="text-[11px] font-mono tracking-widest text-electric-cyan uppercase mt-0.5">
-            PARTICIPANT ARENA ACCESS
+          <p className="text-xs sm:text-sm font-mono tracking-wide text-arena-muted mt-1">
+            Enter your team name to join the game.
           </p>
         </div>
       </div>
 
-      {/* Login Card */}
+      {/* Entry Card */}
       <div className="w-full bg-arena-card border border-electric-cyan/30 rounded-2xl p-5 sm:p-6 shadow-2xl space-y-5">
         <form onSubmit={handleSubmit} className="space-y-4">
           {errorMessage && (
@@ -75,43 +71,20 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
 
           <div className="space-y-3">
             <Input
-              label="Team Username"
-              placeholder="e.g. team01, alpha_centauri"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              leadingIcon={<User className="w-4 h-4" />}
-              className="h-12 text-base font-mono"
-              autoCapitalize="none"
+              label="Enter Team Name"
+              placeholder="e.g. TEAM ALPHA"
+              value={teamName}
+              onChange={(e) => setTeamName(e.target.value)}
+              leadingIcon={<Users className="w-4 h-4" />}
+              className="h-12 text-base font-mono uppercase"
+              autoCapitalize="characters"
               autoCorrect="off"
+              autoFocus
               required
             />
-
-            <div>
-              <label className="block text-xs font-mono font-bold text-arena-muted uppercase tracking-wider mb-1">
-                Team Password
-              </label>
-              <div className="relative">
-                <Input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Enter administrator-assigned password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  leadingIcon={<KeyRound className="w-4 h-4" />}
-                  className="h-12 text-base font-mono pr-11"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-3.5 text-arena-muted hover:text-white"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
           </div>
 
-          {/* Prominent ENTER ARENA Button (min 48px touch target) */}
+          {/* Prominent JOIN LOBBY Button (min 48px touch target) */}
           <Button
             type="submit"
             variant="primary"
@@ -119,7 +92,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
             loading={submitting}
             icon={<ArrowRight className="w-4 h-4" />}
           >
-            ENTER ARENA
+            JOIN LOBBY
           </Button>
         </form>
       </div>

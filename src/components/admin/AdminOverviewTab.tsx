@@ -328,7 +328,7 @@ export function AdminOverviewTab() {
                         </span>
                       </div>
                       <p className="text-[10px] font-mono text-arena-muted mt-0.5">
-                        Username: {team.username || team.teamCode.toLowerCase()}
+                        Team Key: {team.teamName}
                       </p>
                     </div>
                     <div className="flex flex-col items-end shrink-0">
