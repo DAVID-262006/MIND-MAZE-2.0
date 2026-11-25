@@ -264,17 +264,18 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         }
         if (data.teams && data.teams.length > 0) {
           setTeams((prev) => {
-            // Merge remote teams without losing local edits/configured status or lastSeenAt
-            return data.teams!.map((dt) => {
+            // Keep all remote teams, plus any newly created local teams not yet in remote response
+            const remoteTeamIds = new Set(data.teams!.map((dt) => dt.id));
+            const mergedRemote = data.teams!.map((dt) => {
               const existing = prev.find((p) => p.id === dt.id || p.teamCode === dt.teamCode);
               return {
                 ...existing,
                 ...dt,
-                username: dt.username || existing?.username,
-                credentialsConfigured: Boolean(dt.credentialsConfigured || dt.username || existing?.credentialsConfigured || existing?.username),
                 lastSeenAt: dt.lastSeenAt || existing?.lastSeenAt,
               };
             });
+            const localOnly = prev.filter((p) => !remoteTeamIds.has(p.id));
+            return [...mergedRemote, ...localOnly];
           });
         }
         if (data.locations && data.locations.length > 0) {
@@ -494,24 +495,42 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         (payload) => {
           if ((payload.eventType === 'UPDATE' || payload.eventType === 'INSERT') && payload.new) {
             const raw = payload.new as Record<string, unknown>;
-            setTeams((prev) =>
-              prev.map((t) =>
-                t.id === raw.id
-                  ? {
-                    ...t,
-                    teamCode: (raw.team_code as string) || t.teamCode,
-                    teamName: (raw.team_name as string) || t.teamName,
-                    currentRound: typeof raw.current_round === 'number' ? raw.current_round : t.currentRound,
-                    strikes: typeof raw.strikes === 'number' ? raw.strikes : t.strikes,
-                    status: (raw.status as any) || t.status,
-                    eliminationReason: raw.elimination_reason !== undefined ? (raw.elimination_reason as string | null) : t.eliminationReason,
-                    completedAt: raw.completed_at !== undefined ? (raw.completed_at as string | null) : t.completedAt,
-                    lastSeenAt: (raw.last_seen_at as string) || t.lastSeenAt,
-                    startedAt: (raw.started_at as string) || t.startedAt,
-                  }
-                  : t
-              )
-            );
+            setTeams((prev) => {
+              const existingIdx = prev.findIndex((t) => t.id === raw.id);
+              if (existingIdx >= 0) {
+                return prev.map((t) =>
+                  t.id === raw.id
+                    ? {
+                      ...t,
+                      teamCode: (raw.team_code as string) || t.teamCode,
+                      teamName: (raw.team_name as string) || t.teamName,
+                      currentRound: typeof raw.current_round === 'number' ? raw.current_round : t.currentRound,
+                      strikes: typeof raw.strikes === 'number' ? raw.strikes : t.strikes,
+                      status: (raw.status as any) || t.status,
+                      eliminationReason: raw.elimination_reason !== undefined ? (raw.elimination_reason as string | null) : t.eliminationReason,
+                      completedAt: raw.completed_at !== undefined ? (raw.completed_at as string | null) : t.completedAt,
+                      lastSeenAt: (raw.last_seen_at as string) || t.lastSeenAt,
+                      startedAt: (raw.started_at as string) || t.startedAt,
+                    }
+                    : t
+                );
+              }
+              // New team joined dynamically! Automatically append to teams list in Admin and lobby
+              const newDynamicTeam: Team = {
+                id: raw.id as string,
+                teamCode: (raw.team_code as string) || `T-${String(raw.id).slice(0, 4).toUpperCase()}`,
+                teamName: (raw.team_name as string) || 'NEW TEAM',
+                currentRound: typeof raw.current_round === 'number' ? raw.current_round : 1,
+                strikes: typeof raw.strikes === 'number' ? raw.strikes : 0,
+                status: (raw.status as any) || 'ready',
+                eliminationReason: (raw.elimination_reason as string | null) || null,
+                completedAt: (raw.completed_at as string | null) || null,
+                lastSeenAt: (raw.last_seen_at as string) || new Date().toISOString(),
+                startedAt: (raw.started_at as string) || undefined,
+                createdAt: (raw.created_at as string) || new Date().toISOString(),
+              };
+              return [...prev, newDynamicTeam];
+            });
           }
         }
       )
@@ -1412,14 +1431,14 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
               prev.map((t) =>
                 t.id === st.id
                   ? {
-                      ...t,
-                      currentRound: st.current_round,
-                      strikes: st.total_strikes,
-                      status: (st.status as Team['status']) || 'ready',
-                      completedAt: st.completed_at || undefined,
-                      startedAt: st.started_at || undefined,
-                      totalTimeMs: st.total_time_ms || undefined,
-                    }
+                    ...t,
+                    currentRound: st.current_round,
+                    strikes: st.total_strikes,
+                    status: (st.status as Team['status']) || 'ready',
+                    completedAt: st.completed_at || undefined,
+                    startedAt: st.started_at || undefined,
+                    totalTimeMs: st.total_time_ms || undefined,
+                  }
                   : t
               )
             );
@@ -1452,65 +1471,117 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         return { success: true, team: mappedTeam };
       }
 
-      // If remote migration 011 is pending or network is offline, handle gracefully with local registered teams
+      // If remote migration 012 is pending or network is offline, handle gracefully:
+      // If team exists locally, join or restore session
+      // If team does not exist locally, automatically create team locally so participant enters lobby!
       const isSchemaPending =
         rpcRes.isFallback ||
         rpcRes.error?.includes('not yet deployed') ||
         rpcRes.error?.includes('schema cache') ||
         rpcRes.error?.includes('Could not find the function public.join_team_by_name');
 
-      if (isSchemaPending && matchedLocalTeam) {
-        if (matchedLocalTeam.status === 'eliminated') {
-          return { success: false, error: 'This team has been disqualified or eliminated from the competition.' };
+      if (isSchemaPending) {
+        if (matchedLocalTeam) {
+          if (matchedLocalTeam.status === 'eliminated') {
+            return { success: false, error: 'This team has been disqualified from the event.' };
+          }
+          const sessionToken = `session_${matchedLocalTeam.id}_${Date.now()}`;
+          sessionStorage.setItem('mm2_session_token', sessionToken);
+          sessionStorage.setItem('mm2_team_id', matchedLocalTeam.id);
+          setActiveTeamId(matchedLocalTeam.id);
+          setTeams((prev) =>
+            prev.map((t) => (t.id === matchedLocalTeam.id ? { ...t, status: 'ready', lastSeenAt: new Date().toISOString() } : t))
+          );
+          return { success: true, team: matchedLocalTeam };
+        } else {
+          // Self-register new team locally
+          const newTeamId = `team_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+          const words = rawName.split(/\s+/);
+          const generatedCode = words.length > 1
+            ? (words[0][0] + words[1][0]).toUpperCase()
+            : rawName.slice(0, 3).toUpperCase();
+          const autoCode = `T${generatedCode}-${Math.floor(10 + Math.random() * 89)}`;
+
+          const autoTeam: Team = {
+            id: newTeamId,
+            teamCode: autoCode,
+            teamName: rawName,
+            status: 'ready',
+            currentRound: 1,
+            strikes: 0,
+            lastSeenAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          };
+
+          const sessionToken = `session_${newTeamId}_${Date.now()}`;
+          sessionStorage.setItem('mm2_session_token', sessionToken);
+          sessionStorage.setItem('mm2_team_id', newTeamId);
+          setActiveTeamId(newTeamId);
+          setTeams((prev) => [...prev, autoTeam]);
+          return { success: true, team: autoTeam };
         }
-        const sessionToken = `session_${matchedLocalTeam.id}_${Date.now()}`;
-        sessionStorage.setItem('mm2_session_token', sessionToken);
-        sessionStorage.setItem('mm2_team_id', matchedLocalTeam.id);
-        setActiveTeamId(matchedLocalTeam.id);
-        setTeams((prev) =>
-          prev.map((t) => (t.id === matchedLocalTeam.id ? { ...t, status: 'ready', lastSeenAt: new Date().toISOString() } : t))
-        );
-        return { success: true, team: matchedLocalTeam };
       }
 
       if (rpcRes.error || !rpcRes.data || !rpcRes.data.success) {
         return {
           success: false,
-          error: rpcRes.error || rpcRes.data?.error || rpcRes.data?.message || 'Team not found. Please check your team name.',
+          error: rpcRes.error || rpcRes.data?.error || rpcRes.data?.message || 'Unable to join right now. Please try again.',
         };
       }
     }
 
-    // 2. Local registered team validation (Stand-alone mode / zero database)
-    if (!matchedLocalTeam) {
-      return {
-        success: false,
-        error: 'Team not found. Please check your team name.',
-      };
+    // 2. Stand-alone / offline mode: Auto-register or reconnect team locally
+    if (matchedLocalTeam) {
+      if (matchedLocalTeam.status === 'eliminated') {
+        return {
+          success: false,
+          error: 'This team has been disqualified from the event.',
+        };
+      }
+
+      const sessionToken = `session_${matchedLocalTeam.id}_${Date.now()}`;
+      sessionStorage.setItem('mm2_session_token', sessionToken);
+      sessionStorage.setItem('mm2_team_id', matchedLocalTeam.id);
+      setActiveTeamId(matchedLocalTeam.id);
+      setTeams((prev) =>
+        prev.map((t) => (t.id === matchedLocalTeam.id ? { ...t, status: 'ready', lastSeenAt: new Date().toISOString() } : t))
+      );
+
+      return { success: true, team: matchedLocalTeam };
     }
 
-    if (matchedLocalTeam.status === 'eliminated') {
-      return {
-        success: false,
-        error: 'This team has been disqualified or eliminated from the competition.',
-      };
-    }
+    // New team self-registration in local state
+    const newTeamId = `team_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const words = rawName.split(/\s+/);
+    const generatedCode = words.length > 1
+      ? (words[0][0] + words[1][0]).toUpperCase()
+      : rawName.slice(0, 3).toUpperCase();
+    const autoCode = `T${generatedCode}-${Math.floor(10 + Math.random() * 89)}`;
 
-    const sessionToken = `session_${matchedLocalTeam.id}_${Date.now()}`;
+    const autoTeam: Team = {
+      id: newTeamId,
+      teamCode: autoCode,
+      teamName: rawName,
+      status: 'ready',
+      currentRound: 1,
+      strikes: 0,
+      lastSeenAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+
+    const sessionToken = `session_${newTeamId}_${Date.now()}`;
     sessionStorage.setItem('mm2_session_token', sessionToken);
-    sessionStorage.setItem('mm2_team_id', matchedLocalTeam.id);
-    setActiveTeamId(matchedLocalTeam.id);
-    setTeams((prev) =>
-      prev.map((t) => (t.id === matchedLocalTeam.id ? { ...t, status: 'ready', lastSeenAt: new Date().toISOString() } : t))
-    );
+    sessionStorage.setItem('mm2_team_id', newTeamId);
+    setActiveTeamId(newTeamId);
+    setTeams((prev) => [...prev, autoTeam]);
 
-    return { success: true, team: matchedLocalTeam };
+    return { success: true, team: autoTeam };
   }, [teams]);
 
   const leaveLobby = useCallback(async () => {
     const sessionToken = sessionStorage.getItem('mm2_session_token');
     if (sessionToken && SupabaseService.isConfigured()) {
-      await SupabaseService.leaveTeamLobby(sessionToken).catch(() => {});
+      await SupabaseService.leaveTeamLobby(sessionToken).catch(() => { });
     }
     sessionStorage.removeItem('mm2_session_token');
     sessionStorage.removeItem('mm2_team_id');
@@ -1519,7 +1590,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
   const revokeTeamSession = useCallback(async (teamId: string) => {
     if (SupabaseService.isConfigured() && adminToken) {
-      await SupabaseService.adminRevokeTeamSession(teamId, adminToken).catch(() => {});
+      await SupabaseService.adminRevokeTeamSession(teamId, adminToken).catch(() => { });
     }
     setTeams((prev) =>
       prev.map((t) => (t.id === teamId ? { ...t, activeSessionToken: null, lastSeenAt: undefined } : t))

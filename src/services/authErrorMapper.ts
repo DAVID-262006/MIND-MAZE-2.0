@@ -32,13 +32,16 @@ export function mapAuthError(rawError: unknown): string {
 
   // Team already claimed / duplicate active session
   if (
+    lower.includes('already taken') ||
+    lower.includes('already_taken') ||
+    lower.includes('team_already_taken') ||
     lower.includes('already claimed') ||
     lower.includes('already_claimed') ||
     lower.includes('already joined') ||
     lower.includes('team_already_claimed') ||
     lower.includes('already in game')
   ) {
-    return 'This team has already joined the game. Please contact the event administrator.';
+    return 'This team name is already taken. Please choose another name.';
   }
 
   // Disqualified or eliminated team account

@@ -7,22 +7,46 @@ import { INITIAL_LOCATIONS } from '../data/seedData';
 import { generateBalancedRoutes } from '../services/routeEngine';
 
 describe('MIND MAZE 2.0 Comprehensive End-to-End Verification (Tests 1-10)', () => {
-  // Test 1: Team Registration by Team Name Only
-  it('Test 1: Admin registers team with name only; participants join by team name without credentials', () => {
-    // 1. Team registry holds team names
-    const registeredTeams = [
-      { id: 'team-001', teamName: 'TEAM ALPHA', teamCode: 'TA' },
-      { id: 'team-002', teamName: 'ORION NAVIGATORS', teamCode: 'ON' }
+  // Test 1: Open Team Self-Registration
+  it('Test 1: Any participant enters team name and joins lobby without prior admin registration', () => {
+    const teamsRegistry: Array<{ id: string; teamName: string; teamCode: string }> = [
+      { id: 'team-001', teamName: 'TEAM ALPHA', teamCode: 'TA' }
     ];
 
-    // Normalize comparison
     const normalize = (n: string) => n.trim().toLowerCase();
-    const findTeam = (name: string) => registeredTeams.find((t) => normalize(t.teamName) === normalize(name));
 
-    assert.ok(findTeam('team alpha'));
-    assert.ok(findTeam(' TEAM ALPHA '));
-    assert.ok(findTeam('Orion Navigators'));
-    assert.strictEqual(findTeam('Unknown Team'), undefined);
+    // Simulation of join_team_by_name open logic
+    function joinTeam(enteredName: string) {
+      const clean = enteredName.trim();
+      const existing = teamsRegistry.find((t) => normalize(t.teamName) === normalize(clean));
+      if (existing) {
+        return { success: true, team: existing, isNew: false };
+      }
+      const newTeam = {
+        id: `team-${Date.now()}`,
+        teamName: clean,
+        teamCode: `T-${clean.substring(0, 3).toUpperCase()}`
+      };
+      teamsRegistry.push(newTeam);
+      return { success: true, team: newTeam, isNew: true };
+    }
+
+    // 1. Existing team re-joins
+    const resAlpha = joinTeam('team alpha');
+    assert.strictEqual(resAlpha.success, true);
+    assert.strictEqual(resAlpha.isNew, false);
+
+    // 2. Unregistered team joins freely and is automatically created
+    const resExplorers = joinTeam('THE EXPLORERS');
+    assert.strictEqual(resExplorers.success, true);
+    assert.strictEqual(resExplorers.isNew, true);
+    assert.strictEqual(resExplorers.team.teamName, 'THE EXPLORERS');
+    assert.strictEqual(teamsRegistry.length, 2);
+
+    const resCodeBreakers = joinTeam('CODE BREAKERS');
+    assert.strictEqual(resCodeBreakers.success, true);
+    assert.strictEqual(resCodeBreakers.isNew, true);
+    assert.strictEqual(teamsRegistry.length, 3);
   });
 
   // Test 2: Authentication & Centralized Error Handling
@@ -35,8 +59,8 @@ describe('MIND MAZE 2.0 Comprehensive End-to-End Verification (Tests 1-10)', () 
     assert.strictEqual(mapAuthError('Could not find the function public.join_team_by_name in the schema cache'), 'The game is currently unavailable. Please contact the administrator.');
 
     // User-friendly business error mapping
-    assert.strictEqual(mapAuthError('TEAM_NOT_FOUND'), 'Team not found. Please check your team name.');
-    assert.strictEqual(mapAuthError('ALREADY_CLAIMED'), 'This team has already joined the game. Please contact the event administrator.');
+    assert.strictEqual(mapAuthError('TEAM_ALREADY_TAKEN'), 'This team name is already taken. Please choose another name.');
+    assert.strictEqual(mapAuthError('ALREADY_CLAIMED'), 'This team name is already taken. Please choose another name.');
     assert.strictEqual(mapAuthError('TEAM_ELIMINATED'), 'This team has been disqualified from the event.');
     assert.strictEqual(mapAuthError('SESSION_EXPIRED'), 'Your session has expired. Please enter your team name to rejoin.');
     assert.strictEqual(mapAuthError('Failed to fetch'), 'Unable to join right now. Please try again.');
