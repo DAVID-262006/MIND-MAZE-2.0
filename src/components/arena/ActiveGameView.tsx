@@ -424,7 +424,13 @@ export function ActiveGameView({
       {/* 4. QR Scanner Modal */}
       <Modal
         isOpen={isQrModalOpen}
-        onClose={() => setIsQrModalOpen(false)}
+        onClose={() => {
+          cooldownRef.current = true;
+          setIsQrModalOpen(false);
+          setTimeout(() => {
+            cooldownRef.current = false;
+          }, 1500);
+        }}
         title="Physical Station QR Verification"
         maxWidth="md"
       >
@@ -433,7 +439,13 @@ export function ActiveGameView({
             assignedLocation={assignedLocation}
             riddleClue={riddleClueText}
             onScanSuccess={handleScanSuccess}
-            onClose={() => setIsQrModalOpen(false)}
+            onClose={() => {
+              cooldownRef.current = true;
+              setIsQrModalOpen(false);
+              setTimeout(() => {
+                cooldownRef.current = false;
+              }, 1500);
+            }}
           />
         ) : (
           <div className="p-4 text-center text-arena-muted text-xs font-mono">

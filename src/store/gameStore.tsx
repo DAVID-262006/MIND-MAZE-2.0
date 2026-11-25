@@ -1625,19 +1625,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     const token = scannedToken.trim();
 
-    if (SupabaseService.isConfigured()) {
-      const sessionToken = sessionStorage.getItem('mm2_session_token') || '';
-      const rpcRes = await SupabaseService.verifyLocationQr(teamId, sessionToken, token);
-      if (rpcRes.error || !rpcRes.data || !rpcRes.data.success || !rpcRes.data.verified) {
-        return {
-          success: false,
-          message: rpcRes.error || rpcRes.data?.message || 'QR Verification failed.',
-        };
-      }
-
+    // Helper to advance local game state cleanly
+    const advanceLocalRound = () => {
       const now = new Date().toISOString();
-      const isChampionshipComplete = Boolean(rpcRes.data.is_game_finished || roundNumber >= 9);
+      const isChampionshipComplete = roundNumber >= 9;
 
+      // Mark current round QR as verified
       setProgress((prev) => {
         const idx = prev.findIndex((p) => p.teamId === teamId && p.roundNumber === roundNumber);
         if (idx >= 0) {
@@ -1659,7 +1652,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         );
         return {
           success: true,
-          message: rpcRes.data.message || '✓ Final Checkpoint Verified! Championship Complete!',
+          message: '✓ Final Checkpoint Verified! Championship Complete!',
           isCompleted: true,
         };
       } else {
@@ -1694,15 +1687,128 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
         return {
           success: true,
-          message: rpcRes.data.message || `✓ Checkpoint Verified! Proceeding to Round ${nextRound}.`,
+          message: `✓ Checkpoint Verified! Proceeding to Round ${nextRound}.`,
           isCompleted: false,
         };
+      }
+    };
+
+    // Check local assigned location first for fast validation
+    const assignedLocation = getTeamAssignedLocation(teamId, roundNumber);
+    const tokenMatchesLocal = assignedLocation && token === assignedLocation.qrToken;
+
+    if (SupabaseService.isConfigured()) {
+      const sessionToken = sessionStorage.getItem('mm2_session_token') || '';
+      try {
+        const rpcRes = await SupabaseService.verifyLocationQr(teamId, sessionToken, token);
+
+        // If Supabase successfully verifies
+        if (rpcRes.success && rpcRes.data?.success && rpcRes.data?.verified) {
+          const now = new Date().toISOString();
+          const isChampionshipComplete = Boolean(rpcRes.data.is_game_finished || roundNumber >= 9);
+
+          setProgress((prev) => {
+            const idx = prev.findIndex((p) => p.teamId === teamId && p.roundNumber === roundNumber);
+            if (idx >= 0) {
+              const copy = [...prev];
+              copy[idx] = {
+                ...copy[idx]!,
+                qrScanned: true,
+                qrScannedAt: now,
+                completedAt: now,
+              };
+              return copy;
+            }
+            return prev;
+          });
+
+          if (isChampionshipComplete) {
+            setTeams((prev) =>
+              prev.map((t) => (t.id === teamId ? { ...t, status: 'completed', completedAt: now } : t))
+            );
+            return {
+              success: true,
+              message: rpcRes.data.message || '✓ Final Checkpoint Verified! Championship Complete!',
+              isCompleted: true,
+            };
+          } else {
+            const nextRound = roundNumber + 1;
+            const nowEpoch = Date.now();
+            const dur = config.roundDurationSeconds || 300;
+            const grace = config.gracePeriodSeconds || 30;
+
+            setTeams((prev) =>
+              prev.map((t) => (t.id === teamId ? { ...t, currentRound: nextRound } : t))
+            );
+
+            setProgress((prev) => {
+              const exists = prev.some((p) => p.teamId === teamId && p.roundNumber === nextRound);
+              if (!exists) {
+                return [
+                  ...prev,
+                  {
+                    teamId,
+                    roundNumber: nextRound,
+                    puzzleSolved: false,
+                    qrScanned: false,
+                    attemptsCount: 0,
+                    roundStartedAt: new Date(nowEpoch).toISOString(),
+                    deadlineAt: new Date(nowEpoch + dur * 1000).toISOString(),
+                    graceDeadlineAt: new Date(nowEpoch + (dur + grace) * 1000).toISOString(),
+                  },
+                ];
+              }
+              return prev;
+            });
+
+            return {
+              success: true,
+              message: rpcRes.data.message || `✓ Checkpoint Verified! Proceeding to Round ${nextRound}.`,
+              isCompleted: false,
+            };
+          }
+        }
+
+        // Resilient Fallback: If RPC is not deployed on Supabase or schema cache error
+        const isRpcPending =
+          rpcRes.isFallback ||
+          rpcRes.error?.includes('not yet deployed') ||
+          rpcRes.error?.includes('schema cache') ||
+          rpcRes.error?.includes('function verify_location_qr') ||
+          rpcRes.error?.includes('42883');
+
+        if (isRpcPending) {
+          console.warn('[Supabase] verify_location_qr RPC not deployed, executing resilient local verification fallback.');
+          if (tokenMatchesLocal) {
+            return advanceLocalRound();
+          } else {
+            const anyOtherLoc = locations.find((l) => l.qrToken === token);
+            if (anyOtherLoc) {
+              return {
+                success: false,
+                message: `Wrong Location: You scanned ${anyOtherLoc.name} (#${anyOtherLoc.locationNumber}). Your assigned checkpoint is ${assignedLocation?.name} (#${assignedLocation?.locationNumber}).`,
+              };
+            }
+            return { success: false, message: 'Invalid Checkpoint Token. Ensure you are scanning an authorized Arena station.' };
+          }
+        }
+
+        // Legitimate business rejection from remote procedure
+        if (rpcRes.error || !rpcRes.data || !rpcRes.data.success || !rpcRes.data.verified) {
+          return {
+            success: false,
+            message: rpcRes.error || rpcRes.data?.message || 'QR Verification failed.',
+          };
+        }
+      } catch (err) {
+        console.warn('[Supabase] verifyLocationQr unexpected exception, checking local fallback:', err);
+        if (tokenMatchesLocal) {
+          return advanceLocalRound();
+        }
       }
     }
 
     // Local offline fallback
-    const assignedLocation = getTeamAssignedLocation(teamId, roundNumber);
-
     if (!assignedLocation) {
       return { success: false, message: 'No location assigned for this round.' };
     }
@@ -1719,67 +1825,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       return { success: false, message: 'Invalid Checkpoint Token. Ensure you are scanning an authorized Arena station.' };
     }
 
-    const now = new Date().toISOString();
-    const isChampionshipComplete = roundNumber >= 9;
-
-    // Mark current round QR as verified
-    setProgress((prev) => {
-      const idx = prev.findIndex((p) => p.teamId === teamId && p.roundNumber === roundNumber);
-      if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx] = {
-          ...copy[idx]!,
-          qrScanned: true,
-          qrScannedAt: now,
-          completedAt: now,
-        };
-        return copy;
-      }
-      return prev;
-    });
-
-    if (isChampionshipComplete) {
-      // Completed tournament!
-      setTeams((prev) =>
-        prev.map((t) => (t.id === teamId ? { ...t, status: 'completed', completedAt: now } : t))
-      );
-      return {
-        success: true,
-        message: '✓ Final Checkpoint Verified! Championship Complete!',
-        isCompleted: true,
-      };
-    } else {
-      // Advance to next round
-      const nextRound = roundNumber + 1;
-      const nowEpoch = Date.now();
-      const dur = config.roundDurationSeconds || 300;
-      const grace = config.gracePeriodSeconds || 30;
-
-      setTeams((prev) =>
-        prev.map((t) => (t.id === teamId ? { ...t, currentRound: nextRound } : t))
-      );
-
-      // Initialize next round progress
-      setProgress((prev) => [
-        ...prev,
-        {
-          teamId,
-          roundNumber: nextRound,
-          puzzleSolved: false,
-          qrScanned: false,
-          attemptsCount: 0,
-          roundStartedAt: new Date(nowEpoch).toISOString(),
-          deadlineAt: new Date(nowEpoch + dur * 1000).toISOString(),
-          graceDeadlineAt: new Date(nowEpoch + (dur + grace) * 1000).toISOString(),
-        },
-      ]);
-
-      return {
-        success: true,
-        message: `✓ Checkpoint Verified! Proceeding to Round ${nextRound}.`,
-        isCompleted: false,
-      };
-    }
+    return advanceLocalRound();
   }, [teams, getTeamAssignedLocation, locations, config.roundDurationSeconds, config.gracePeriodSeconds]);
 
   const recordViolation = useCallback((teamId: string, type: ViolationType, metadata?: Record<string, unknown>) => {

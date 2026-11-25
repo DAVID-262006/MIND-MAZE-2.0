@@ -74,13 +74,21 @@ export function CameraQrScanner({
       isStoppedRef.current = true;
       if (scannerRef.current) {
         try {
-          if (scannerRef.current.isScanning) {
-            scannerRef.current
+          const scanner = scannerRef.current;
+          scannerRef.current = null;
+          if (scanner.isScanning) {
+            scanner
               .stop()
-              .then(() => scannerRef.current?.clear())
-              .catch(() => {});
+              .then(() => scanner.clear())
+              .catch(() => {
+                try {
+                  scanner.clear();
+                } catch {}
+              });
           } else {
-            scannerRef.current.clear();
+            try {
+              scanner.clear();
+            } catch {}
           }
         } catch {}
       }
