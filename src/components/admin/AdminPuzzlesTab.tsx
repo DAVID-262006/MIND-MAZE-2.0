@@ -15,7 +15,6 @@ import {
   Sparkles,
   AlertCircle,
   Package,
-  Key,
   Download,
   Loader2
 } from 'lucide-react';
@@ -253,51 +252,6 @@ export function AdminPuzzlesTab() {
               Add Challenge
             </Button>
           </div>
-        )}
-      </div>
-
-      {/* Universal Cheat Code (#007) Override Setting */}
-      <div className="bg-arena-card border border-arena-border rounded-xl p-4 flex flex-wrap items-center justify-between gap-4 shadow-lg">
-        <div className="flex items-center gap-3">
-          <div className={`p-2.5 rounded-lg border ${config.universalCheatCodeEnabled !== false ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-arena-panel border-arena-border text-arena-muted'}`}>
-            <Key className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="text-sm font-bold text-white font-mono uppercase tracking-wider">
-                Universal Cheat Code Override (#007)
-              </h4>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono uppercase border ${
-                config.universalCheatCodeEnabled !== false
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                  : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
-              }`}>
-                {config.universalCheatCodeEnabled !== false ? 'Enabled' : 'Disabled'}
-              </span>
-            </div>
-            <p className="text-xs text-arena-muted mt-0.5 max-w-xl">
-              Allows participants or testing staff to instantly unlock any question by entering <code className="text-amber-400 font-mono font-bold">#007</code> without consuming attempts.
-            </p>
-          </div>
-        </div>
-
-        {isSuperadminOrAdmin && (
-          <Button
-            variant={config.universalCheatCodeEnabled !== false ? 'outline' : 'primary'}
-            size="sm"
-            onClick={() => {
-              const newState = config.universalCheatCodeEnabled === false;
-              updateConfig({ universalCheatCodeEnabled: newState });
-              if (newState) {
-                success('Cheat Code Enabled', 'Universal cheat code #007 is now active for all questions.');
-              } else {
-                warning('Cheat Code Disabled', 'Universal cheat code #007 has been deactivated.');
-              }
-            }}
-            className="font-mono text-xs"
-          >
-            {config.universalCheatCodeEnabled !== false ? 'Disable #007 Override' : 'Enable #007 Override'}
-          </Button>
         )}
       </div>
 
