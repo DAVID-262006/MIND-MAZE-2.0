@@ -31,23 +31,16 @@ export function mapQuestionToRiddle(q: QuestionDefinition): Riddle {
       title: q.title,
       descriptionMd: q.descriptionMd,
       puzzleType: 'CODE_BASED',
-      acceptedAnswers: [],
+      acceptedAnswers: (q.testCases || []).map((tc) => tc.expectedOutput).filter(Boolean),
       caseSensitive: false,
       normalizeWhitespace: true,
       maxAttempts: q.maxAttempts || 10,
       hints: q.hints || [],
       published: true,
       isActive: true,
-      starterCode: {
-        javascript: q.starterCode,
-      },
-      sampleCases: (q.testCases || []).map((tc) => ({
-        id: tc.id,
-        input: tc.input,
-        expectedOutput: tc.expectedOutput,
-        isHidden: tc.isHidden,
-      })),
-      codeLanguage: q.language || 'javascript',
+      // The starterCode field now stores the CODE SNIPPET to display (read-only)
+      codeSnippet: q.starterCode,
+      codeLanguage: q.language || 'python',
     };
   } else {
     return {

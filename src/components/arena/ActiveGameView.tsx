@@ -11,6 +11,7 @@ import { CameraQrScanner } from './CameraQrScanner';
 import { WarningModal } from '../anticheat/WarningModal';
 import { useGameStore } from '../../store/gameStore';
 import { useTimer } from '../../hooks/useTimer';
+import { useQuestionTimer } from '../../hooks/useQuestionTimer';
 import { useAntiCheat } from '../../hooks/useAntiCheat';
 import { useBrowserInactivity } from '../../hooks/useBrowserInactivity';
 import { ViolationManager, type WarningConfig } from '../../services/violationManager';
@@ -160,6 +161,41 @@ export function ActiveGameView({
   };
 
   const puzzleSolved = currentProgress?.puzzleSolved ?? false;
+
+  // ── Question-Only Timer ──
+  // Starts when the question view mounts (question is active)
+  // Stops immediately when the correct answer is accepted
+  // Not affected by QR scanning (which happens after solve)
+  const sessionToken = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('mm2_session_token') : null;
+  const questionTimer = useQuestionTimer({
+    roundNumber: currentRound,
+    isSolved: puzzleSolved,
+    questionStartedAt: currentProgress?.questionStartedAt,
+    questionSolvedAt: currentProgress?.questionSolvedAt,
+    questionDurationMs: currentProgress?.questionDurationMs,
+    sessionToken,
+  });
+
+  // Auto-start the question timer when a new question becomes active
+  const timerStartedForRoundRef = useRef<number>(0);
+  useEffect(() => {
+    if (
+      !puzzleSolved &&
+      config.status === 'live' &&
+      currentRound > 0 &&
+      timerStartedForRoundRef.current !== currentRound &&
+      questionTimer.status === 'idle'
+    ) {
+      timerStartedForRoundRef.current = currentRound;
+      questionTimer.startTimer();
+    }
+  }, [puzzleSolved, config.status, currentRound, questionTimer]);
+
+  // Reset timer tracking ref when round changes
+  useEffect(() => {
+    timerStartedForRoundRef.current = 0;
+  }, [currentRound]);
+
   const riddleClueText =
     assignedLocation?.riddleClue ||
     QuestionRegistry.getRiddleForLocation(assignedLocation?.id || currentRound)?.riddleClue ||
@@ -198,7 +234,12 @@ export function ActiveGameView({
         feedback: 'Game interaction locked. Please restore fullscreen and acknowledge warnings to continue.',
       };
     }
-    return await submitAnswer(team.id, currentRound, answer);
+    const result = await submitAnswer(team.id, currentRound, answer);
+    // Stop the question timer immediately on correct answer
+    if (result.isCorrect) {
+      questionTimer.stopTimer();
+    }
+    return result;
   };
 
   const handleScanSuccess = async (token: string) => {
@@ -319,6 +360,34 @@ export function ActiveGameView({
               <span className="font-semibold">
                 Critical: 5m round expired! Scan checkpoint QR before grace timer reaches 00:00!
               </span>
+            </div>
+          )}
+
+          {/* Question-Only Timer — displayed below the round countdown */}
+          {config.status === 'live' && (
+            <div className={`flex items-center justify-between pt-2 border-t border-arena-border/40 ${puzzleSolved ? 'opacity-70' : ''}`}>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-arena-muted">
+                  {puzzleSolved ? 'Question Solved In' : 'Question Timer'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-mono font-bold tracking-tight ${
+                  puzzleSolved
+                    ? 'text-electric-emerald'
+                    : questionTimer.status === 'running'
+                    ? 'text-white'
+                    : 'text-arena-muted'
+                }`}>
+                  {questionTimer.formattedTime}
+                </span>
+                {puzzleSolved && (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-electric-emerald shrink-0" />
+                )}
+                {!puzzleSolved && questionTimer.status === 'running' && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-electric-cyan animate-pulse shrink-0" />
+                )}
+              </div>
             </div>
           )}
         </div>

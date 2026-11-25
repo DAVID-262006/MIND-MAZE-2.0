@@ -276,6 +276,23 @@ export class SupabaseService {
   }
 
   /**
+   * Operational tracking: record_question_started(p_session_token, p_round_number)
+   * Records when a question display becomes active (timer start).
+   * Idempotent — does not reset timer if already started.
+   * STRICT ARCHITECTURE RULE: ZERO question content or answers sent to Supabase.
+   */
+  public static async recordQuestionStarted(sessionToken: string, roundNumber: number) {
+    return this.callRpc<{
+      success: boolean;
+      question_started_at?: string;
+      team_id?: string;
+    }>('record_question_started', {
+      p_session_token: sessionToken,
+      p_round_number: roundNumber,
+    });
+  }
+
+  /**
    * Operational tracking only: record_puzzle_solved(p_session_token, p_round_number)
    * Informs Supabase that the team has solved the checkpoint puzzle.
    * STRICT ARCHITECTURE RULE: ZERO question content or answers sent to Supabase.
@@ -676,6 +693,11 @@ export class SupabaseService {
         graceDeadlineAt: (pr.grace_deadline_at as string) || new Date().toISOString(),
         completedAt: (pr.qr_scanned_at as string) || null,
         timedOut: pr.status === 'timed_out',
+        // Question-only timer fields
+        questionStatus: (pr.question_status as any) || 'not_started',
+        questionStartedAt: (pr.question_started_at as string) || null,
+        questionSolvedAt: (pr.question_solved_at as string) || null,
+        questionDurationMs: pr.question_duration_ms != null ? Number(pr.question_duration_ms) : null,
       }));
 
       const incidents: AntiCheatIncident[] = (d.incidents || []).map((a) => {

@@ -13,7 +13,9 @@ import {
   Clock, 
   XCircle,
   AlertTriangle,
-  Radio
+  Radio,
+  Timer,
+  Hourglass
 } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 
@@ -27,6 +29,27 @@ export type LiveTeamStatus =
   | 'eliminated';
 
 const HEARTBEAT_TIMEOUT_MS = 45000; // 45 seconds
+
+function formatDuration(ms: number | null | undefined): string {
+  if (ms == null || ms <= 0) return '—';
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+function formatTimestamp(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  } catch {
+    return '—';
+  }
+}
 
 export function AdminLiveMonitoringTab() {
   const { teams, locations, routes, progress } = useGameStore();
@@ -304,6 +327,9 @@ export function AdminLiveMonitoringTab() {
                 <th className="py-3 px-4">Game Status</th>
                 <th className="py-3 px-4">Current Location</th>
                 <th className="py-3 px-4 text-center">Question Status</th>
+                <th className="py-3 px-4 text-center">Q Started At</th>
+                <th className="py-3 px-4 text-center">Q Solved At</th>
+                <th className="py-3 px-4 text-center">Solve Duration</th>
                 <th className="py-3 px-4">Last Activity</th>
               </tr>
             </thead>
@@ -408,19 +434,53 @@ export function AdminLiveMonitoringTab() {
                         )}
                       </td>
 
-                      {/* Question Completion Status */}
+                      {/* Question Completion Status — two separate concerns */}
                       <td className="py-3 px-4 text-center whitespace-nowrap">
-                        {team.prog?.puzzleSolved ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-bold px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30">
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>SOLVED</span>
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-arena-muted px-2 py-0.5 rounded bg-zinc-800/40 border border-arena-border">
-                            <XCircle className="w-3 h-3" />
-                            <span>PENDING</span>
-                          </span>
-                        )}
+                        {/* Overall question status (not_started / in_progress / solved) */}
+                        {(() => {
+                          const qStatus = (team.prog as any)?.questionStatus || (team.prog?.puzzleSolved ? 'solved' : 'not_started');
+                          if (qStatus === 'solved') {
+                            return (
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-bold px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  <span>SOLVED</span>
+                                </span>
+                                {/* Solve duration */}
+                                {(() => {
+                                  const durMs = (team.prog as any)?.questionDurationMs;
+                                  return durMs != null ? (
+                                    <span className="text-[10px] text-emerald-300 font-mono">{formatDuration(durMs)}</span>
+                                  ) : null;
+                                })()}
+                                {/* Started / Solved timestamps */}
+                                <div className="text-[9px] text-arena-muted font-mono space-y-0.5">
+                                  <div>Start: {formatTimestamp((team.prog as any)?.questionStartedAt)}</div>
+                                  <div>Solved: {formatTimestamp((team.prog as any)?.questionSolvedAt)}</div>
+                                </div>
+                              </div>
+                            );
+                          } else if (qStatus === 'in_progress') {
+                            return (
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="inline-flex items-center gap-1 text-[11px] text-blue-400 font-bold px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/30 animate-pulse">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                                  <span>IN PROGRESS</span>
+                                </span>
+                                <div className="text-[9px] text-arena-muted font-mono">
+                                  Start: {formatTimestamp((team.prog as any)?.questionStartedAt)}
+                                </div>
+                              </div>
+                            );
+                          } else {
+                            return (
+                              <span className="inline-flex items-center gap-1 text-[11px] text-arena-muted px-2 py-0.5 rounded bg-zinc-800/40 border border-arena-border">
+                                <XCircle className="w-3 h-3" />
+                                <span>NOT STARTED</span>
+                              </span>
+                            );
+                          }
+                        })()}
                       </td>
 
                       {/* Last Activity Timestamp */}

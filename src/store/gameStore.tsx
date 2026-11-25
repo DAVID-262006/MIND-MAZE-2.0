@@ -236,6 +236,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
             roundStartedAt: cp.round_started_at,
             deadlineAt: cp.deadline_at,
             graceDeadlineAt: cp.grace_deadline_at,
+            questionStatus: (cp as any).question_status || 'not_started',
+            questionStartedAt: (cp as any).question_started_at || null,
+            questionSolvedAt: (cp as any).question_solved_at || null,
+            questionDurationMs: (cp as any).question_duration_ms ?? null,
           };
           setProgress((prev) => {
             const other = prev.filter((p) => !(p.teamId === storedTeamId && p.roundNumber === cp.round_number));
@@ -442,6 +446,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
               roundStartedAt: cp.round_started_at,
               deadlineAt: cp.deadline_at,
               graceDeadlineAt: cp.grace_deadline_at,
+              questionStatus: (cp as any).question_status || 'not_started',
+              questionStartedAt: (cp as any).question_started_at || null,
+              questionSolvedAt: (cp as any).question_solved_at || null,
+              questionDurationMs: (cp as any).question_duration_ms ?? null,
             };
             if (idx >= 0) {
               const updated = [...prev];
@@ -524,6 +532,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
               graceDeadlineAt: raw.grace_deadline_at as string,
               timedOut: Boolean(raw.timed_out),
               completedAt: (raw.completed_at as string) || null,
+              questionStatus: (raw.question_status as any) || 'not_started',
+              questionStartedAt: (raw.question_started_at as string) || null,
+              questionSolvedAt: (raw.question_solved_at as string) || null,
+              questionDurationMs: raw.question_duration_ms != null ? Number(raw.question_duration_ms) : null,
             };
 
             setProgress((prev) => {

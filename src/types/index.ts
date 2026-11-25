@@ -143,6 +143,8 @@ export interface RouteAllocationResult {
   };
 }
 
+export type QuestionStatus = 'not_started' | 'in_progress' | 'solved';
+
 export interface TeamRoundProgress {
   teamId: string;
   roundNumber: number;
@@ -157,6 +159,11 @@ export interface TeamRoundProgress {
   completedAt?: string | null;
   timedOut?: boolean;
   riddleRevealed?: string | null;
+  // Question-only timer fields
+  questionStatus?: QuestionStatus;
+  questionStartedAt?: string | null;
+  questionSolvedAt?: string | null;
+  questionDurationMs?: number | null;
 }
 
 export interface AntiCheatIncident {

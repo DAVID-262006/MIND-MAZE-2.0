@@ -135,137 +135,69 @@ export class LocalEvaluationEngine {
   }
 
   /**
-   * Evaluate a code-based question submission locally against test cases.
-   * If allowCheatCode is true and submission matches or contains #007, unlocks immediately.
+   * Evaluate a code-based question submission locally.
+   *
+   * REDESIGNED: Code questions now require participants to READ the code and
+   * type the answer (output, variable value, error name, etc.). The evaluation
+   * compares the submitted text against the accepted answers list — no code
+   * execution is performed.
+   *
+   * The first test case's expectedOutput is treated as the canonical answer.
+   * Additional entries in testCases are treated as alternative accepted answers.
+   *
+   * If allowCheatCode is true and submission matches #007, unlocks immediately.
    */
   public static evaluateCode(
     question: CodeQuestion,
-    submittedCode: string,
+    submittedAnswer: string,
     options?: EvaluationOptions
   ): LocalValidationResult {
     const allowCheatCode = options?.allowCheatCode !== false;
-    const cleanCode = (submittedCode || '').trim();
+    const cleanAnswer = (submittedAnswer || '').trim();
 
-    if (!cleanCode) {
+    if (!cleanAnswer) {
       return {
         isCorrect: false,
-        feedback: 'Code submission cannot be empty.',
-        executionOutput: 'Error: No code submitted to execute.',
+        feedback: 'Please type your answer.',
       };
     }
 
-    // Universal Cheat Code: submitting #007 immediately unlocks the question
-    if (allowCheatCode && (cleanCode === this.CHEAT_CODE || cleanCode.includes(this.CHEAT_CODE))) {
-      const tcCount = (question.testCases || []).length;
+    // Universal Cheat Code
+    if (allowCheatCode && (cleanAnswer === this.CHEAT_CODE || cleanAnswer.includes(this.CHEAT_CODE))) {
       return {
         isCorrect: true,
         isCheatCode: true,
         feedback: '✓ Universal cheat code #007 accepted! Code challenge unlocked.',
-        executionOutput: 'Universal override #007 accepted. All test cases bypassed.',
-        passedTestCases: tcCount,
-        totalTestCases: tcCount,
+        executionOutput: 'Universal override #007 accepted.',
+        passedTestCases: 1,
+        totalTestCases: 1,
       };
     }
 
-    const logs: string[] = [];
-    let fn: any;
+    // Collect all accepted answers from testCases
+    const testCases = question.testCases || [];
+    const acceptedAnswers = testCases.map((tc) => tc.expectedOutput).filter(Boolean);
 
-    try {
-      // Scoped execution wrapper capturing console output safely
-      const wrapper = new Function(
-        'console',
-        `"use strict";
-${cleanCode}
-if (typeof solve !== 'function') {
-  throw new Error("Your code must declare a function named 'solve'.");
-}
-return solve;`
-      );
-
-      const mockConsole = {
-        log: (...args: any[]) => {
-          logs.push(args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))).join(' '));
-        },
-        warn: (...args: any[]) => {
-          logs.push('[WARN] ' + args.join(' '));
-        },
-        error: (...args: any[]) => {
-          logs.push('[ERROR] ' + args.join(' '));
-        },
-      };
-
-      fn = wrapper(mockConsole);
-    } catch (syntaxErr: any) {
+    if (acceptedAnswers.length === 0) {
       return {
         isCorrect: false,
-        isCheatCode: false,
-        feedback: `Syntax / Compilation Error: ${syntaxErr.message}`,
-        executionOutput: syntaxErr.stack || syntaxErr.message,
+        feedback: 'This question has no configured answer yet. Contact the administrator.',
       };
     }
 
-    let passedCount = 0;
-    const testResults: string[] = [];
-    const testCases = question.testCases || [];
-
-    for (let i = 0; i < testCases.length; i++) {
-      const tc = testCases[i];
-      let testInputParsed: any;
-
-      try {
-        // Attempt JSON parse or array parse for multiple arguments
-        if (tc.input.startsWith('[') || tc.input.startsWith('{') || !isNaN(Number(tc.input))) {
-          testInputParsed = JSON.parse(`[${tc.input}]`);
-        } else {
-          testInputParsed = [tc.input];
-        }
-      } catch {
-        testInputParsed = [tc.input];
-      }
-
-      try {
-        const actualResult = fn(...testInputParsed);
-        const actualStr = JSON.stringify(actualResult);
-        const expectedParsed = JSON.parse(tc.expectedOutput);
-        const expectedStr = JSON.stringify(expectedParsed);
-
-        const isMatch =
-          actualStr === expectedStr ||
-          String(actualResult).trim().toLowerCase() === String(tc.expectedOutput).trim().toLowerCase() ||
-          (typeof actualResult === 'number' &&
-            Math.abs(actualResult - Number(tc.expectedOutput)) < 1e-6);
-
-        if (isMatch) {
-          passedCount++;
-          testResults.push(`✓ Test Case #${i + 1}: Passed`);
-        } else {
-          const detail = tc.isHidden
-            ? `✗ Test Case #${i + 1} (Hidden): Failed (output did not match expected)`
-            : `✗ Test Case #${i + 1}: Failed (Expected: ${tc.expectedOutput}, Got: ${actualStr})`;
-          testResults.push(detail);
-        }
-      } catch (runtimeErr: any) {
-        testResults.push(`✗ Test Case #${i + 1}: Runtime Error (${runtimeErr.message})`);
-      }
-    }
-
-    const allPassed = passedCount === testCases.length && testCases.length > 0;
-    const executionOutput = [
-      ...testResults,
-      logs.length > 0 ? `\n--- Program Output ---\n${logs.join('\n')}` : '',
-    ]
-      .filter(Boolean)
-      .join('\n');
+    const normalizedSubmission = this.normalize(cleanAnswer, false);
+    const isCorrect = acceptedAnswers.some(
+      (ans) => this.normalize(ans, false) === normalizedSubmission
+    );
 
     return {
-      isCorrect: allPassed,
+      isCorrect,
       isCheatCode: false,
-      feedback: allPassed
-        ? `✓ Excellent! All ${testCases.length}/${testCases.length} test cases passed!`
-        : `Failed: ${passedCount}/${testCases.length} test cases passed. Review your logic and retry.`,
-      executionOutput,
-      passedTestCases: passedCount,
-      totalTestCases: testCases.length,
+      feedback: isCorrect
+        ? '✓ Correct! Code analysis verified.'
+        : 'Incorrect. Trace through the code carefully and try again.',
+      passedTestCases: isCorrect ? 1 : 0,
+      totalTestCases: 1,
     };
   }
 
