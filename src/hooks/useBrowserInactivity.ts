@@ -174,3 +174,4 @@ export function useBrowserInactivity({
     interruptionCount: interruptionCountRef.current,
   };
 }
+
