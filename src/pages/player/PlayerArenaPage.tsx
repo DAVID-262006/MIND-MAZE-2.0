@@ -46,12 +46,25 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
     return isTeamStarted;
   });
 
-  // Keep state synchronized if team becomes active or event becomes live
+  // Keep state synchronized if team becomes active or event becomes live/countdown complete
   React.useEffect(() => {
     if (isTeamStarted || config.status === 'live') {
       setHasStartedGame(true);
+      return;
     }
-  }, [isTeamStarted, config.status]);
+
+    if (config.status === 'countdown' && config.countdownStartAt) {
+      const remainingMs = new Date(config.countdownStartAt).getTime() - Date.now();
+      if (remainingMs <= 0) {
+        setHasStartedGame(true);
+      } else {
+        const timeout = setTimeout(() => {
+          setHasStartedGame(true);
+        }, remainingMs);
+        return () => clearTimeout(timeout);
+      }
+    }
+  }, [isTeamStarted, config.status, config.countdownStartAt]);
 
   // Requirement 13D: Participant Heartbeat & Online Presence
   // Sends a lightweight heartbeat every 12 seconds while a participant is logged in
@@ -159,7 +172,7 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
           onLogout={logoutTeam}
         />
         <main className="flex-1 max-w-lg mx-auto w-full px-4 py-6 flex flex-col justify-center">
-          <LobbyView team={activeTeam} onStartGame={handleStartGame} onLogout={logoutTeam} />
+          <LobbyView team={activeTeam} onLogout={logoutTeam} />
         </main>
       </div>
     );

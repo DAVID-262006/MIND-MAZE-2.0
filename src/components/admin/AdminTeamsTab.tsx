@@ -19,7 +19,9 @@ import {
   AlertTriangle,
   Loader2,
   Lock,
-  EyeOff
+  EyeOff,
+  Copy,
+  Key
 } from 'lucide-react';
 import { useToast } from '../ui/Toast';
 import { useGameStore } from '../../store/gameStore';
@@ -35,19 +37,25 @@ interface IssuedCredential {
 }
 
 export function AdminTeamsTab() {
-  const { teams, adminRole, adminToken, createTeam, updateTeam, deleteTeam, eliminateTeam, reinstateTeam, issueTeamCredentials } = useGameStore();
+  const { teams, adminRole, adminToken, createTeam, updateTeam, deleteTeam, eliminateTeam, reinstateTeam, issueTeamCredentials, resetTeamPassword } = useGameStore();
   const { success, warning, error: toastError } = useToast();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
   const [newTeamCode, setNewTeamCode] = useState('');
+  const [newTeamUsername, setNewTeamUsername] = useState('');
+  const [newTeamPassword, setNewTeamPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Edit Team state
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [editName, setEditName] = useState('');
   const [editCode, setEditCode] = useState('');
+
+  // Password Reset Modal state
+  const [resetTargetTeam, setResetTargetTeam] = useState<Team | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
 
   // Eliminate & Delete states
   const [targetTeam, setTargetTeam] = useState<Team | null>(null);
@@ -73,14 +81,60 @@ export function AdminTeamsTab() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const res = await createTeam(newTeamName, newTeamCode);
+      const username = newTeamUsername.trim() || newTeamCode.trim().toLowerCase();
+      const password = newTeamPassword.trim() || 'user1122';
+      const res = await createTeam(newTeamName, newTeamCode, username, password);
       if (res.success) {
-        success('Team Created', `Added team ${newTeamCode.toUpperCase()} (${newTeamName}).`);
+        success('Team Registered', `Registered team ${newTeamCode.toUpperCase()} (${newTeamName}) with username: ${username}.`);
         setIsCreateOpen(false);
         setNewTeamName('');
         setNewTeamCode('');
+        setNewTeamUsername('');
+        setNewTeamPassword('');
       } else {
-        toastError('Create Error', res.error || 'Failed to create team.');
+        toastError('Registration Error', res.error || 'Failed to register team.');
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCopyCredentials = (team: Team) => {
+    const creds = JSON.parse(localStorage.getItem('mm2_custom_team_credentials') || '{}');
+    const stored = creds[team.id];
+    const username = team.username || team.teamCode.toLowerCase();
+    const password = stored?.password || 'user1122';
+    const textToCopy = `MIND MAZE 2.0 Credentials\nTeam: ${team.teamName} (${team.teamCode})\nUsername: ${username}\nPassword: ${password}`;
+    
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(textToCopy);
+      success('Credentials Copied', `Copied login credentials for ${team.teamName} to clipboard.`);
+    } else {
+      success('Credentials', `Username: ${username} | Password: ${password}`);
+    }
+  };
+
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetTargetTeam || !newPasswordInput.trim()) return;
+
+    setIsSubmitting(true);
+    try {
+      const res = await resetTeamPassword(resetTargetTeam.id, newPasswordInput.trim());
+      if (res.success) {
+        // Also update local cache so admin can copy credentials
+        try {
+          const creds = JSON.parse(localStorage.getItem('mm2_custom_team_credentials') || '{}');
+          const username = resetTargetTeam.username || resetTargetTeam.teamCode.toLowerCase();
+          creds[resetTargetTeam.id] = { username, password: newPasswordInput.trim() };
+          localStorage.setItem('mm2_custom_team_credentials', JSON.stringify(creds));
+        } catch {}
+
+        success('Password Reset', `Password for ${resetTargetTeam.teamName} has been securely updated.`);
+        setResetTargetTeam(null);
+        setNewPasswordInput('');
+      } else {
+        toastError('Password Reset Error', res.error || 'Failed to reset password.');
       }
     } finally {
       setIsSubmitting(false);
@@ -302,6 +356,30 @@ export function AdminTeamsTab() {
                       <Button
                         size="sm"
                         variant="ghost"
+                        onClick={() => handleCopyCredentials(team)}
+                        className="p-1.5 text-electric-cyan hover:bg-cyan-500/10"
+                        title="Copy team login credentials"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setResetTargetTeam(team);
+                          setNewPasswordInput('');
+                        }}
+                        className="p-1.5 text-electric-amber hover:bg-amber-500/10"
+                        title="Reset team password"
+                        disabled={!isSuperadminOrAdmin}
+                      >
+                        <Key className="w-3.5 h-3.5" />
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant="ghost"
                         onClick={() => openEdit(team)}
                         className="p-1.5 text-arena-muted hover:text-white"
                         title="Edit team details"
@@ -377,7 +455,12 @@ export function AdminTeamsTab() {
             label="Team Code"
             placeholder="e.g. T21"
             value={newTeamCode}
-            onChange={(e) => setNewTeamCode(e.target.value)}
+            onChange={(e) => {
+              setNewTeamCode(e.target.value);
+              if (!newTeamUsername) {
+                setNewTeamUsername(e.target.value.toLowerCase());
+              }
+            }}
             required
             disabled={isSubmitting}
             helperText="Unique uppercase identifier (e.g. T01 to T25)"
@@ -390,18 +473,60 @@ export function AdminTeamsTab() {
             required
             disabled={isSubmitting}
           />
-          <div className="p-3 bg-arena-panel/60 border border-arena-border rounded-lg text-xs text-arena-muted flex items-start gap-2">
-            <Lock className="w-4 h-4 text-electric-cyan shrink-0 mt-0.5" />
-            <span>
-              Passcodes are generated using high-entropy server-side cryptography. When created, the team will be initialized with credentials locked until the administrator runs the credential issuance tool.
-            </span>
-          </div>
+          <Input
+            label="Team Username"
+            placeholder="e.g. orion_team"
+            value={newTeamUsername}
+            onChange={(e) => setNewTeamUsername(e.target.value)}
+            required
+            disabled={isSubmitting}
+            helperText="Participant login username (lowercase, 3-30 chars)"
+          />
+          <Input
+            label="Initial Team Password"
+            type="password"
+            placeholder="Minimum 6 characters (default: user1122)"
+            value={newTeamPassword}
+            onChange={(e) => setNewTeamPassword(e.target.value)}
+            disabled={isSubmitting}
+            helperText="Hashed via bcrypt. Plaintext is never stored in Supabase."
+          />
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" size="sm" type="button" onClick={() => setIsCreateOpen(false)} disabled={isSubmitting}>
               Cancel
             </Button>
             <Button variant="primary" size="sm" type="submit" disabled={isSubmitting}>
               {isSubmitting ? 'Registering...' : 'Register Team'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: Reset Password */}
+      <Modal
+        isOpen={!!resetTargetTeam}
+        onClose={() => setResetTargetTeam(null)}
+        title={`Reset Password for ${resetTargetTeam?.teamName}`}
+      >
+        <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+          <p className="text-xs text-arena-muted">
+            Update the secure password for team <strong className="text-white">{resetTargetTeam?.teamCode}</strong> (Username: <span className="text-electric-cyan font-mono">{resetTargetTeam?.username || resetTargetTeam?.teamCode.toLowerCase()}</span>).
+          </p>
+          <Input
+            label="New Password"
+            type="password"
+            placeholder="Minimum 6 characters"
+            value={newPasswordInput}
+            onChange={(e) => setNewPasswordInput(e.target.value)}
+            required
+            disabled={isSubmitting}
+          />
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" size="sm" type="button" onClick={() => setResetTargetTeam(null)} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Updating...' : 'Update Password'}
             </Button>
           </div>
         </form>

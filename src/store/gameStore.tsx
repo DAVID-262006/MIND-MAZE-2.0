@@ -54,7 +54,7 @@ interface GameContextType {
   // Admin controls
   loginAdmin: (username: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logoutAdmin: () => Promise<void> | void;
-  createTeam: (name: string, code: string) => Promise<{ success: boolean; error?: string; team?: Team }>;
+  createTeam: (name: string, code: string, username?: string, password?: string) => Promise<{ success: boolean; error?: string; team?: Team }>;
   updateTeam: (id: string, updates: Partial<Team>) => Promise<{ success: boolean; error?: string }>;
   deleteTeam: (id: string, force?: boolean) => Promise<{ success: boolean; error?: string }>;
   eliminateTeam: (id: string, reason: string) => Promise<void> | void;
@@ -683,6 +683,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     const now = new Date().toISOString();
     const durationSeconds = config.roundDurationSeconds || 300;
     const graceSeconds = config.gracePeriodSeconds || 30;
+    // Set authoritative global start timestamp 5 seconds in the future
+    const countdownTargetMs = Date.now() + 5000;
+    const countdownTargetIso = new Date(countdownTargetMs).toISOString();
 
     if (SupabaseService.isConfigured()) {
       if (adminToken) {
@@ -695,8 +698,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       try {
         if (supabase) {
           await supabase.from('event_settings').update({
-            status: 'live',
-            event_started_at: now,
+            status: 'countdown',
+            event_started_at: countdownTargetIso,
             routes_locked: true,
             updated_at: now,
           }).eq('id', 1);
@@ -706,17 +709,33 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // Lock routes and update local state
+    // Set countdown status and authoritative future start timestamp
     setConfig((prev) => ({
       ...prev,
-      status: 'live',
-      eventStartedAt: prev.eventStartedAt || now,
+      status: 'countdown',
+      eventStartedAt: countdownTargetIso,
+      countdownStartAt: countdownTargetIso,
       routesLocked: true,
       pauseStartedAt: null,
     }));
 
-    // Initialize Round 1 Progress for all active/ready teams if not already started
-    const nowEpoch = Date.now();
+    // Transition to live automatically once countdown finishes
+    setTimeout(() => {
+      setConfig((prev) => ({
+        ...prev,
+        status: 'live',
+      }));
+      if (SupabaseService.isConfigured() && supabase) {
+        Promise.resolve(
+          supabase.from('event_settings').update({
+            status: 'live',
+            updated_at: new Date().toISOString(),
+          }).eq('id', 1)
+        ).catch(() => {});
+      }
+    }, 5000);
+
+    // Initialize Round 1 Progress for all active/ready teams starting at countdownTargetMs
     setProgress((prev) => {
       const updated = [...prev];
       teams.forEach((t) => {
@@ -729,9 +748,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
               puzzleSolved: false,
               qrScanned: false,
               attemptsCount: 0,
-              roundStartedAt: new Date(nowEpoch).toISOString(),
-              deadlineAt: new Date(nowEpoch + durationSeconds * 1000).toISOString(),
-              graceDeadlineAt: new Date(nowEpoch + (durationSeconds + graceSeconds) * 1000).toISOString(),
+              roundStartedAt: countdownTargetIso,
+              deadlineAt: new Date(countdownTargetMs + durationSeconds * 1000).toISOString(),
+              graceDeadlineAt: new Date(countdownTargetMs + (durationSeconds + graceSeconds) * 1000).toISOString(),
             });
           }
         }
@@ -740,7 +759,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     });
 
     setTeams((prev) =>
-      prev.map((t) => (t.status === 'ready' || t.status === 'registered' ? { ...t, status: 'active' } : t))
+      prev.map((t) => (t.status === 'ready' || t.status === 'registered' ? { ...t, status: 'active', startedAt: countdownTargetIso } : t))
     );
   }, [config.roundDurationSeconds, config.gracePeriodSeconds, teams, adminToken]);
 
@@ -923,15 +942,22 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     StorageService.setAdminAuth(false);
   }, [adminToken]);
 
-  const createTeam = useCallback(async (name: string, code: string) => {
+  const createTeam = useCallback(async (name: string, code: string, customUsername?: string, customPassword?: string) => {
     const cleanCode = code.trim().toUpperCase();
     const cleanName = name.trim();
+    const cleanUsername = (customUsername || cleanCode).trim().toLowerCase();
+    const plainPassword = (customPassword || 'user1122').trim();
+
     if (!cleanCode || !cleanName) {
       return { success: false, error: 'Team name and code are required.' };
     }
 
     if (teams.some((t) => t.teamCode.toUpperCase() === cleanCode)) {
       return { success: false, error: `Team code ${cleanCode} is already taken.` };
+    }
+
+    if (teams.some((t) => t.username?.toLowerCase() === cleanUsername)) {
+      return { success: false, error: `Username ${cleanUsername} is already taken.` };
     }
 
     if (SupabaseService.isConfigured()) {
@@ -942,16 +968,30 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         const res = await SupabaseService.adminCreateTeam(cleanName, cleanCode, adminToken);
         const teamData = res.data?.team;
         if (res.success && res.data?.success && teamData) {
+          // If custom password or username was provided, update credentials in Supabase
+          if (customPassword || (customUsername && customUsername !== cleanCode.toLowerCase())) {
+            await SupabaseService.adminSetTeamCredentials(teamData.id, cleanUsername, plainPassword, adminToken).catch(() => {});
+          }
+
           const createdTeam: Team = {
             id: teamData.id,
             teamCode: teamData.team_code,
             teamName: teamData.team_name,
+            username: cleanUsername,
+            credentialsConfigured: true,
             credentialsRandomized: Boolean(teamData.credentials_randomized),
             status: (teamData.status as Team['status']) || 'ready',
             currentRound: teamData.current_round || 1,
             strikes: teamData.total_strikes || 0,
             createdAt: teamData.created_at,
           };
+
+          // Save to local credential cache for immediate dev/test login
+          try {
+            const creds = JSON.parse(localStorage.getItem('mm2_custom_team_credentials') || '{}');
+            creds[teamData.id] = { username: cleanUsername, password: plainPassword };
+            localStorage.setItem('mm2_custom_team_credentials', JSON.stringify(creds));
+          } catch {}
 
           setTeams((prev) => [...prev, createdTeam]);
           return { success: true, team: createdTeam };
@@ -969,12 +1009,21 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       id: `team-${Date.now().toString().slice(-6)}`,
       teamCode: cleanCode,
       teamName: cleanName,
-      credentialsRandomized: false,
+      username: cleanUsername,
+      credentialsConfigured: true,
+      credentialsRandomized: true,
       status: config.status === 'live' ? 'active' : 'ready',
       currentRound: 1,
       strikes: 0,
       createdAt: new Date().toISOString(),
     };
+
+    // Save to local credential cache
+    try {
+      const creds = JSON.parse(localStorage.getItem('mm2_custom_team_credentials') || '{}');
+      creds[newTeam.id] = { username: cleanUsername, password: plainPassword };
+      localStorage.setItem('mm2_custom_team_credentials', JSON.stringify(creds));
+    } catch {}
 
     setTeams((prev) => [...prev, newTeam]);
     return { success: true, team: newTeam };

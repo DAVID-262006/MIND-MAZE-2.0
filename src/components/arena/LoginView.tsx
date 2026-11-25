@@ -4,6 +4,7 @@ import { Input } from '../ui/Input';
 import { Compass, KeyRound, User, AlertOctagon, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { useFullscreen } from '../../hooks/useFullscreen';
+import { mapAuthError } from '../../services/authErrorMapper';
 
 export interface LoginViewProps {
   onLoginSuccess?: () => void;
@@ -26,13 +27,8 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     const cleanUser = username.trim();
     const cleanPass = password.trim();
 
-    if (!cleanUser) {
-      setErrorMessage('Please enter your team username or team code.');
-      return;
-    }
-
-    if (!cleanPass) {
-      setErrorMessage('Please enter your designated team password.');
+    if (!cleanUser || !cleanPass) {
+      setErrorMessage(mapAuthError('Please enter both username and password.'));
       return;
     }
 
@@ -41,7 +37,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
     setSubmitting(false);
 
     if (!res.success) {
-      setErrorMessage(res.error || 'Authentication failed. Please verify credentials.');
+      setErrorMessage(mapAuthError(res.error));
       return;
     }
 

@@ -13,10 +13,31 @@ export interface LobbyViewProps {
   onLogout: () => void;
 }
 
-export function LobbyView({ team, onStartGame, onLogout }: LobbyViewProps) {
+export function LobbyView({ team, onLogout }: LobbyViewProps) {
   const { isFullscreen, enterFullscreen } = useFullscreen();
-  const { hasConfigUpdate, publishedConfigVersion, applyPublishedConfig } = useGameStore();
+  const { hasConfigUpdate, publishedConfigVersion, applyPublishedConfig, config } = useGameStore();
   const { success, error: toastError } = useToast();
+
+  const [countdownSeconds, setCountdownSeconds] = React.useState<number | null>(null);
+
+  React.useEffect(() => {
+    if (config.status !== 'countdown' || !config.countdownStartAt) {
+      setCountdownSeconds(null);
+      return;
+    }
+
+    const targetTime = new Date(config.countdownStartAt).getTime();
+
+    const updateTimer = () => {
+      const remainingMs = targetTime - Date.now();
+      const sec = Math.max(0, Math.ceil(remainingMs / 1000));
+      setCountdownSeconds(sec);
+    };
+
+    updateTimer();
+    const timer = setInterval(updateTimer, 200);
+    return () => clearInterval(timer);
+  }, [config.status, config.countdownStartAt]);
 
   return (
     <div className="min-h-[85vh] flex flex-col justify-center items-center px-4 py-6 max-w-md mx-auto w-full">
@@ -97,26 +118,30 @@ export function LobbyView({ team, onStartGame, onLogout }: LobbyViewProps) {
           </ul>
         </div>
 
-        {/* Participant Self-Start Button */}
-        {onStartGame && (
-          <div className="pt-2">
-            <Button
-              size="lg"
-              variant="primary"
-              className="w-full h-14 text-base font-black tracking-wider uppercase bg-gradient-to-r from-electric-cyan via-teal-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-black shadow-[0_0_30px_rgba(0,242,254,0.35)] active:scale-[0.98] transition-all"
-              icon={<Compass className="w-5 h-5" />}
-              onClick={onStartGame}
-            >
-              START GAME
-            </Button>
+        {/* Synchronized Countdown HUD or Waiting State */}
+        {countdownSeconds !== null ? (
+          <div className="p-6 bg-electric-cyan/10 border-2 border-electric-cyan rounded-2xl flex flex-col items-center justify-center gap-3 animate-pulse shadow-[0_0_40px_rgba(0,242,254,0.35)]">
+            <span className="text-xs uppercase tracking-widest font-mono font-bold text-electric-cyan">
+              {countdownSeconds > 0 ? 'SYNCHRONIZED EVENT COUNTDOWN' : 'COMMENCING EVENT'}
+            </span>
+            <div className="text-6xl font-black font-mono text-white tracking-tighter">
+              {countdownSeconds > 0 ? countdownSeconds : 'GO!'}
+            </div>
+            <span className="text-xs font-mono text-electric-cyan/80">
+              {countdownSeconds > 0
+                ? 'All teams starting simultaneously at Location 1'
+                : 'Entering Location 1 station...'}
+            </span>
+          </div>
+        ) : (
+          <div className="p-4 bg-arena-panel border border-arena-border rounded-xl flex items-center justify-center gap-3 text-xs text-electric-cyan font-mono font-medium">
+            <Clock className="w-5 h-5 animate-spin text-electric-cyan shrink-0" />
+            <div className="text-left">
+              <p className="font-bold text-white uppercase tracking-wider">Awaiting Championship Start</p>
+              <p className="text-arena-muted text-[11px]">The administrator will start the event globally for all teams.</p>
+            </div>
           </div>
         )}
-
-        {/* Readiness Clock Pulse */}
-        <div className="p-3 bg-electric-cyan/5 border border-electric-cyan/20 rounded-xl flex items-center justify-center gap-2 text-xs text-electric-cyan font-mono font-medium">
-          <Clock className="w-4 h-4 animate-spin text-electric-cyan shrink-0" />
-          <span>Ready to deploy. Tap START GAME when your team is prepared.</span>
-        </div>
 
         <div className="pt-1">
           <Button

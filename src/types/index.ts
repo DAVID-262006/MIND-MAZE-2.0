@@ -5,7 +5,7 @@
 
 export type TeamStatus = 'registered' | 'ready' | 'active' | 'completed' | 'eliminated';
 
-export type GameStatus = 'draft' | 'ready' | 'live' | 'paused' | 'finished';
+export type GameStatus = 'draft' | 'ready' | 'countdown' | 'live' | 'paused' | 'finished';
 
 export type RoundStatus = 
   | 'in_progress' 
@@ -222,6 +222,7 @@ export interface GameEventConfig {
   totalPauseDurationMs: number;
   routesLocked: boolean;
   universalCheatCodeEnabled?: boolean; // Default true: #007 universal override
+  countdownStartAt?: string | null; // Authoritative future timestamp for synchronized 5-second countdown
 }
 
 export interface FullGameBackup {
