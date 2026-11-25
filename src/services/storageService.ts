@@ -84,13 +84,15 @@ export class StorageService {
       if (raw && raw !== 'undefined' && raw !== 'null') {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Validate and sanitize each team (zero credentials stored)
+          // Validate and sanitize each team (zero password hashes or passwords stored)
           const sanitized: Team[] = parsed
             .filter((t) => t && typeof t === 'object' && t.id && t.teamCode)
             .map((t) => ({
               id: String(t.id),
               teamCode: String(t.teamCode).toUpperCase(),
               teamName: String(t.teamName || `Team ${t.teamCode}`),
+              username: t.username ? String(t.username) : undefined,
+              credentialsConfigured: Boolean(t.credentialsConfigured || t.username),
               credentialsRandomized: Boolean(t.credentialsRandomized),
               status: VALID_TEAM_STATUSES.includes(t.status) ? t.status : 'ready',
               currentRound: typeof t.currentRound === 'number' && t.currentRound >= 1 && t.currentRound <= 10
@@ -120,6 +122,8 @@ export class StorageService {
         id: t.id,
         teamCode: t.teamCode,
         teamName: t.teamName,
+        username: t.username,
+        credentialsConfigured: t.credentialsConfigured,
         credentialsRandomized: t.credentialsRandomized,
         status: t.status,
         currentRound: t.currentRound,

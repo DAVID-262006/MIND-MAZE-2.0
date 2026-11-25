@@ -12,6 +12,7 @@ import { WarningModal } from '../anticheat/WarningModal';
 import { useGameStore } from '../../store/gameStore';
 import { useTimer } from '../../hooks/useTimer';
 import { useAntiCheat } from '../../hooks/useAntiCheat';
+import { useBrowserInactivity } from '../../hooks/useBrowserInactivity';
 import { ViolationManager, type WarningConfig } from '../../services/violationManager';
 import { QuestionRegistry } from '../../features/questions';
 import {
@@ -166,6 +167,29 @@ export function ActiveGameView({
     currentPuzzle?.riddleText ||
     'Navigate to your assigned physical location on campus to scan the station QR code.';
 
+  // Browser Inactivity Anti-Cheat Hook (Android / Mobile Anti-Cheat)
+  // Specifically monitors visibilitychange, blur/focus, pagehide/pageshow during active question solving
+  useBrowserInactivity({
+    activeTeam: team,
+    isPlaying: config.status === 'live',
+    isQuestionActive: !puzzleSolved, // Strictly active during question solving; disabled once riddle is unlocked
+    suppressed: isQrModalOpen || warningModalState.isOpen || isLeaveModalOpen || cooldownRef.current,
+    onInactivityDetected: (type: ViolationType, metadata) => {
+      if (cooldownRef.current) return;
+
+      const res = recordViolation(team.id, type, metadata);
+      if (res.eliminated) {
+        setWarningModalState({ isOpen: false, config: null });
+      } else {
+        const warnConfig = ViolationManager.getWarningConfig(res.strikeNumber, type);
+        setWarningModalState({
+          isOpen: true,
+          config: warnConfig,
+        });
+      }
+    },
+  });
+
   const handlePuzzleSubmit = async (answer: string) => {
     // Block interaction if warning modal is open or fullscreen is not restored
     if (warningModalState.isOpen || (!isFullscreen && isSupported)) {
@@ -299,19 +323,21 @@ export function ActiveGameView({
           )}
         </div>
 
-        {/* 1. Round Challenge View (Question solved using supported type) */}
-        <div className="space-y-3">
-          <PuzzleRenderer
-            puzzle={currentPuzzle}
-            isSolved={puzzleSolved}
-            onSolved={() => {
-              success('Challenge Solved!', 'Station Location Riddle and QR scanner unlocked below.');
-            }}
-            onSubmitAnswer={handlePuzzleSubmit}
-          />
-        </div>
+        {/* 1. Round Challenge View (Shown ONLY when unsolved; completely removed after solve or #007) */}
+        {!puzzleSolved && (
+          <div className="space-y-3">
+            <PuzzleRenderer
+              puzzle={currentPuzzle}
+              isSolved={puzzleSolved}
+              onSolved={() => {
+                success('Challenge Solved!', 'Station Location Riddle and QR scanner unlocked below.');
+              }}
+              onSubmitAnswer={handlePuzzleSubmit}
+            />
+          </div>
+        )}
 
-        {/* 2. Location Riddle Section (HIDDEN until question is solved, revealed immediately upon solve or #007) */}
+        {/* 2. Location Riddle Section (Revealed immediately upon solve or #007, replacing the question) */}
         {puzzleSolved ? (
           <div className="bg-arena-card border-2 border-electric-cyan/50 rounded-2xl p-4 sm:p-5 shadow-[0_0_35px_rgba(0,242,254,0.2)] space-y-3 animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between">
@@ -341,17 +367,7 @@ export function ActiveGameView({
               Read the clue above, navigate to this physical campus checkpoint, and scan the placard QR code below.
             </p>
           </div>
-        ) : (
-          <div className="bg-arena-card/60 border border-arena-border/60 rounded-2xl p-3.5 sm:p-4 text-center space-y-1.5 opacity-80">
-            <div className="flex items-center justify-center gap-2 text-xs font-mono text-arena-muted">
-              <Lock className="w-4 h-4 text-electric-amber" />
-              <span>Station #{assignedLocation?.locationNumber || currentRound} Location Riddle Locked</span>
-            </div>
-            <p className="text-[11px] text-arena-muted">
-              Correctly solve the challenge above (or use bypass) to reveal this station's location riddle.
-            </p>
-          </div>
-        )}
+        ) : null}
 
         {/* 3. Station QR Verification Button (Unlocked after solving challenge) */}
         {puzzleSolved && (

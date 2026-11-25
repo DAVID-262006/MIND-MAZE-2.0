@@ -69,6 +69,7 @@ interface GameContextType {
   lockRoutes: () => void;
 
   // Player actions
+  startParticipantGame: (teamId?: string) => Promise<{ success: boolean; error?: string }>;
   loginTeam: (teamCode: string, accessCode: string) => Promise<{ success: boolean; error?: string; team?: Team }> | { success: boolean; error?: string; team?: Team };
   logoutTeam: () => void;
   getTeamProgress: (teamId: string, roundNumber: number) => TeamRoundProgress | undefined;
@@ -254,11 +255,33 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           console.warn('[Supabase] Admin dashboard hydration rejected:', data.error);
           return;
         }
-        setTeams(data.teams ?? []);
-        setLocations((data.locations ?? []).map((loc) => ({
-          ...loc,
-          riddleClue: QuestionRegistry.getRiddleForLocation(loc.id)?.riddleClue || loc.riddleClue,
-        })));
+        if (data.teams && data.teams.length > 0) {
+          setTeams((prev) => {
+            // Merge remote teams without losing local edits/configured status
+            return data.teams!.map((dt) => {
+              const existing = prev.find((p) => p.id === dt.id || p.teamCode === dt.teamCode);
+              return {
+                ...existing,
+                ...dt,
+                username: dt.username || existing?.username,
+                credentialsConfigured: Boolean(dt.credentialsConfigured || dt.username || existing?.credentialsConfigured || existing?.username),
+              };
+            });
+          });
+        }
+        if (data.locations && data.locations.length > 0) {
+          setLocations((prev) => {
+            return data.locations!.map((loc) => {
+              const existing = prev.find((l) => l.id === loc.id);
+              const registryRiddle = QuestionRegistry.getRiddleForLocation(loc.id)?.riddleClue;
+              return {
+                ...existing,
+                ...loc,
+                riddleClue: registryRiddle || existing?.riddleClue || loc.riddleClue || '',
+              };
+            });
+          });
+        }
         // ARCHITECTURE MANDATE: Frontend owns question content. Do not overwrite from Supabase.
         setRiddles(QuestionRegistry.getAllQuestions().map(mapQuestionToRiddle));
         if (data.routes && data.routes.length === 180) {
@@ -266,8 +289,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         } else {
           setRoutes((prev) => (prev.length === 180 ? prev : StorageService.loadRoutes()));
         }
-        setProgress(data.progress ?? []);
-        setIncidents(data.incidents ?? []);
+        if (data.progress) {
+          setProgress(data.progress);
+        }
+        if (data.incidents) {
+          setIncidents(data.incidents);
+        }
       }).catch((err) => console.warn('[Supabase] Admin data hydration failed:', err));
     };
 
@@ -1416,6 +1443,80 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     };
   }, [teams, config.status, config.roundDurationSeconds, config.gracePeriodSeconds]);
 
+  const startParticipantGame = useCallback(async (teamId?: string): Promise<{ success: boolean; error?: string }> => {
+    const targetId = teamId || activeTeamId;
+    if (!targetId) {
+      return { success: false, error: 'No active team session found.' };
+    }
+
+    const targetTeam = teams.find((t) => t.id === targetId);
+    if (!targetTeam) {
+      return { success: false, error: 'Team not found.' };
+    }
+
+    if (targetTeam.status === 'eliminated') {
+      return { success: false, error: 'Team is eliminated.' };
+    }
+
+    const now = new Date().toISOString();
+    const nowEpoch = Date.now();
+    const durationSeconds = config.roundDurationSeconds || 300;
+    const graceSeconds = config.gracePeriodSeconds || 30;
+
+    // 1. Update team status locally and set startedAt
+    setTeams((prev) =>
+      prev.map((t) =>
+        t.id === targetId
+          ? {
+              ...t,
+              status: t.status === 'completed' || t.status === 'eliminated' ? t.status : 'active',
+              startedAt: t.startedAt || now,
+            }
+          : t
+      )
+    );
+
+    // 2. Initialize round 1 progress if not already started
+    setProgress((prev) => {
+      const existing = prev.find((p) => p.teamId === targetId && p.roundNumber === 1);
+      if (existing) {
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          teamId: targetId,
+          roundNumber: 1,
+          puzzleSolved: false,
+          qrScanned: false,
+          attemptsCount: 0,
+          roundStartedAt: now,
+          deadlineAt: new Date(nowEpoch + durationSeconds * 1000).toISOString(),
+          graceDeadlineAt: new Date(nowEpoch + (durationSeconds + graceSeconds) * 1000).toISOString(),
+        },
+      ];
+    });
+
+    // 3. Mark config as live locally so participant interface activates immediately
+    setConfig((prev) => ({
+      ...prev,
+      status: 'live',
+      routesLocked: true,
+    }));
+
+    // 4. Send operational tracking info only to Supabase (best-effort, no blocking)
+    if (SupabaseService.isConfigured()) {
+      const sessionToken = sessionStorage.getItem('mm2_session_token');
+      if (sessionToken) {
+        SupabaseService.startTeamJourney(targetId, sessionToken).catch((err: unknown) => {
+          console.warn('[Supabase] startTeamJourney notice:', err);
+        });
+      }
+    }
+
+    return { success: true };
+  }, [activeTeamId, teams, config.roundDurationSeconds, config.gracePeriodSeconds]);
+
   const logoutTeam = useCallback(() => {
     sessionStorage.removeItem('mm2_session_token');
     sessionStorage.removeItem('mm2_team_id');
@@ -1840,6 +1941,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     regenerateRoutes,
     lockRoutes,
 
+    startParticipantGame,
     loginTeam,
     logoutTeam,
     getTeamProgress,

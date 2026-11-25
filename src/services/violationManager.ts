@@ -83,6 +83,8 @@ export class ViolationManager {
         return 'Browser window lost focus. Interaction with an external application or window detected.';
       case 'fullscreen_exit':
         return 'Fullscreen mode was exited. Fullscreen is strictly mandatory during active gameplay.';
+      case 'browser_inactivity':
+        return 'Browser became inactive or lost focus (potential external app or assistant overlay). Please remain focused on the game screen.';
       default:
         return 'Suspicious screen transition or navigation detected.';
     }

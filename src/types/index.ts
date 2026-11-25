@@ -23,7 +23,8 @@ export type SupportedLanguage = 'c' | 'cpp' | 'python' | 'java' | 'javascript';
 export type ViolationType = 
   | 'tab_switch' 
   | 'window_blur' 
-  | 'fullscreen_exit';
+  | 'fullscreen_exit'
+  | 'browser_inactivity';
 
 export interface TestCase {
   id?: string;

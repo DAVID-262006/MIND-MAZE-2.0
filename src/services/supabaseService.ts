@@ -567,6 +567,8 @@ export class SupabaseService {
         id: String(t.id),
         teamCode: String(t.team_code),
         teamName: String(t.team_name),
+        username: (t.username as string) || undefined,
+        credentialsConfigured: Boolean(t.credentials_configured || t.username),
         credentialsRandomized: Boolean(t.credentials_randomized),
         status: (t.status as Team['status']) || 'ready',
         currentRound: Number(t.current_round || 1),

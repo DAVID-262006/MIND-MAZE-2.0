@@ -7,10 +7,11 @@ import { useFullscreen } from '../../hooks/useFullscreen';
 
 export interface LobbyViewProps {
   team: Team;
+  onStartGame?: () => void;
   onLogout: () => void;
 }
 
-export function LobbyView({ team, onLogout }: LobbyViewProps) {
+export function LobbyView({ team, onStartGame, onLogout }: LobbyViewProps) {
   const { isFullscreen, enterFullscreen } = useFullscreen();
 
   return (
@@ -66,10 +67,25 @@ export function LobbyView({ team, onLogout }: LobbyViewProps) {
           </ul>
         </div>
 
+        {/* Participant Self-Start Button */}
+        {onStartGame && (
+          <div className="pt-2">
+            <Button
+              size="lg"
+              variant="primary"
+              className="w-full h-14 text-base font-black tracking-wider uppercase bg-gradient-to-r from-electric-cyan via-teal-400 to-emerald-400 hover:from-cyan-300 hover:to-emerald-300 text-black shadow-[0_0_30px_rgba(0,242,254,0.35)] active:scale-[0.98] transition-all"
+              icon={<Compass className="w-5 h-5" />}
+              onClick={onStartGame}
+            >
+              START GAME
+            </Button>
+          </div>
+        )}
+
         {/* Readiness Clock Pulse */}
         <div className="p-3 bg-electric-cyan/5 border border-electric-cyan/20 rounded-xl flex items-center justify-center gap-2 text-xs text-electric-cyan font-mono font-medium">
           <Clock className="w-4 h-4 animate-spin text-electric-cyan shrink-0" />
-          <span>Awaiting marshal synchronized match start...</span>
+          <span>Ready to deploy. Tap START GAME when your team is prepared.</span>
         </div>
 
         <div className="pt-1">

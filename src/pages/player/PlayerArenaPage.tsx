@@ -20,17 +20,46 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
     leaderboard,
     incidents,
     logoutTeam,
+    startParticipantGame,
+    progress,
   } = useGameStore();
 
   const { isFullscreen, toggleFullscreen, isSupported } = useFullscreen();
-  const [hasStartedGame, setHasStartedGame] = useState(false);
 
-  // Requirement 9: Automatically transition participant from lobby to active gameplay without manual refresh
+  // Check if participant has already started the game (via active status, local storage, or existing progress)
+  const isTeamStarted = React.useMemo(() => {
+    if (!activeTeam) return false;
+    if (activeTeam.status === 'active' || activeTeam.status === 'completed' || activeTeam.status === 'eliminated') {
+      return true;
+    }
+    const hasProgress = progress.some((p) => p.teamId === activeTeam.id);
+    if (hasProgress) return true;
+    try {
+      const stored = localStorage.getItem(`mm2_team_started_${activeTeam.id}`);
+      if (stored === 'true') return true;
+    } catch {}
+    return false;
+  }, [activeTeam, progress]);
+
+  const [hasStartedGame, setHasStartedGame] = useState<boolean>(() => {
+    return isTeamStarted;
+  });
+
+  // Keep state synchronized if team becomes active or event becomes live
   React.useEffect(() => {
-    if (config.status === 'live') {
+    if (isTeamStarted || config.status === 'live') {
       setHasStartedGame(true);
     }
-  }, [config.status]);
+  }, [isTeamStarted, config.status]);
+
+  const handleStartGame = async () => {
+    if (!activeTeam) return;
+    try {
+      localStorage.setItem(`mm2_team_started_${activeTeam.id}`, 'true');
+    } catch {}
+    setHasStartedGame(true);
+    await startParticipantGame(activeTeam.id);
+  };
 
   // 1. If not authenticated, render Welcome / Login Screen
   if (!activeTeam) {
@@ -90,8 +119,8 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
     );
   }
 
-  // 4. If event is not live (draft, ready, or paused before live) and team is ready, render Player Lobby
-  if (config.status !== 'live' && (activeTeam.status === 'ready' || activeTeam.status === 'registered')) {
+  // 4. If participant has not yet started their game, render Player Lobby with START GAME button
+  if (!hasStartedGame && (activeTeam.status === 'ready' || activeTeam.status === 'registered')) {
     return (
       <div className="min-h-screen bg-arena-bg flex flex-col">
         <PlayerHeader
@@ -102,14 +131,14 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
           onLogout={logoutTeam}
         />
         <main className="flex-1 max-w-lg mx-auto w-full px-4 py-6 flex flex-col justify-center">
-          <LobbyView team={activeTeam} onLogout={logoutTeam} />
+          <LobbyView team={activeTeam} onStartGame={handleStartGame} onLogout={logoutTeam} />
         </main>
       </div>
     );
   }
 
-  // 5. Fullscreen Activation Screen: Mandatory before active gameplay begins
-  if (config.status === 'live' && !hasStartedGame && !isFullscreen) {
+  // 5. Fullscreen Activation Screen: Mandatory before active gameplay begins if not in fullscreen
+  if (!isFullscreen && isSupported) {
     return (
       <FullscreenActivationScreen
         team={activeTeam}
