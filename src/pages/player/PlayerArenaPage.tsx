@@ -27,10 +27,18 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
 
   const { isFullscreen, toggleFullscreen, isSupported } = useFullscreen();
 
-  // Check if participant has already started the game (via active status, local storage, or existing progress)
+  // Check if participant has already started the game:
+  // ONLY if the event is already live AND the team has active status or existing progress
   const isTeamStarted = React.useMemo(() => {
     if (!activeTeam) return false;
-    if (activeTeam.status === 'active' || activeTeam.status === 'completed' || activeTeam.status === 'eliminated') {
+    if (activeTeam.status === 'completed' || activeTeam.status === 'eliminated') {
+      return true;
+    }
+    // If the event itself has not gone live yet, the team MUST remain in the lobby!
+    if (config.status !== 'live') {
+      return false;
+    }
+    if (activeTeam.status === 'active') {
       return true;
     }
     const hasProgress = progress.some((p) => p.teamId === activeTeam.id);
@@ -40,15 +48,15 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
       if (stored === 'true') return true;
     } catch {}
     return false;
-  }, [activeTeam, progress]);
+  }, [activeTeam, progress, config.status]);
 
   const [hasStartedGame, setHasStartedGame] = useState<boolean>(() => {
     return isTeamStarted;
   });
 
-  // Keep state synchronized if team becomes active or event becomes live/countdown complete
+  // Keep state synchronized: participant only enters gameplay when event is live or countdown completes
   React.useEffect(() => {
-    if (isTeamStarted || config.status === 'live') {
+    if (config.status === 'live') {
       setHasStartedGame(true);
       return;
     }
@@ -64,7 +72,7 @@ export function PlayerArenaPage({ onNavigateHome }: PlayerArenaPageProps) {
         return () => clearTimeout(timeout);
       }
     }
-  }, [isTeamStarted, config.status, config.countdownStartAt]);
+  }, [config.status, config.countdownStartAt]);
 
   // Requirement 13D: Participant Heartbeat & Online Presence
   // Sends a lightweight heartbeat every 12 seconds while a participant is logged in

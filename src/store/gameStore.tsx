@@ -1481,7 +1481,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
           teamName: teamData.team_name,
           username: teamData.username || cleanLowerUser,
           credentialsConfigured: true,
-          status: (teamData.status as Team['status']) || 'active',
+          status: (teamData.status as Team['status']) || 'ready',
           currentRound: teamData.current_round || 1,
           strikes: 0,
           createdAt: new Date().toISOString(),

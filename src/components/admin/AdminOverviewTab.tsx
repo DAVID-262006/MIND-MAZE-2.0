@@ -282,6 +282,71 @@ export function AdminOverviewTab() {
         </div>
       </div>
 
+      {/* Teams Waiting in Lobby Panel */}
+      <div className="p-5 bg-arena-card border border-electric-cyan/30 rounded-xl space-y-4 shadow-xl">
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Users className="w-4 h-4 text-electric-cyan" />
+              <span>Competitors Connected &amp; Waiting in Lobby ({readyTeams})</span>
+            </h3>
+            <p className="text-[11px] text-arena-muted font-mono">
+              Teams logged in and awaiting the global game start. Click &quot;Start Championship&quot; above to begin the 5-second synchronized countdown.
+            </p>
+          </div>
+          <StatusBadge
+            variant={readyTeams > 0 ? 'ready' : 'neutral'}
+            label={readyTeams > 0 ? `${readyTeams} TEAMS READY` : 'NO TEAMS IN LOBBY'}
+            pulse={readyTeams > 0}
+          />
+        </div>
+
+        {readyTeams === 0 ? (
+          <div className="p-4 bg-arena-panel/40 border border-arena-border/50 rounded-lg text-center text-xs text-arena-muted font-mono">
+            No participants are currently waiting in the lobby. Registered teams will appear here as soon as they sign in.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {teams
+              .filter((t) => t.status === 'ready' || t.status === 'registered')
+              .map((team) => {
+                const isOnline = team.lastSeenAt
+                  ? Date.now() - new Date(team.lastSeenAt).getTime() < 30000
+                  : true; // recently logged in
+                return (
+                  <div
+                    key={team.id}
+                    className="p-3 bg-arena-panel border border-arena-border rounded-lg flex items-center justify-between gap-3 hover:border-electric-cyan/40 transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold font-mono text-electric-cyan">
+                          {team.teamCode}
+                        </span>
+                        <span className="text-xs font-medium text-white truncate">
+                          {team.teamName}
+                        </span>
+                      </div>
+                      <p className="text-[10px] font-mono text-arena-muted mt-0.5">
+                        Username: {team.username || team.teamCode.toLowerCase()}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end shrink-0">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-emerald-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Lobby
+                      </span>
+                      <span className="text-[9px] text-arena-muted font-mono">
+                        {isOnline ? 'Online' : 'Connected'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        )}
+      </div>
+
       {/* Round Distribution Heatmap */}
       <div className="p-5 bg-arena-card border border-arena-border rounded-xl space-y-3">
         <div className="flex items-center justify-between">
